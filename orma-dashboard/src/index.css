@@ -1,0 +1,61 @@
+@import "tailwindcss";
+
+@theme {
+  /* Slate Ledger — locked palette */
+  --color-bg: #F5F6F8;
+  --color-surface: #FFFFFF;
+  --color-surface-alt: #EAECF0;
+  --color-ink: #22262E;
+  --color-ink-soft: #6B7280;
+  --color-accent: #3D5A80;
+  --color-accent-dark: #2E4762;
+  --color-accent-soft: #E4E9F2;
+  --color-border: #DCDFE5;
+
+  --font-display: "Sora", sans-serif;
+  --font-body: "Inter", sans-serif;
+}
+
+body {
+  background: var(--color-bg);
+  color: var(--color-ink);
+  font-family: var(--font-body);
+}
+
+/* Signature hero animation: a page being captured into a memory card */
+@keyframes capture-bar-glow {
+  0%, 25% { box-shadow: 0 0 0 0 rgba(61, 90, 128, 0); border-color: var(--color-border); }
+  35%, 55% { box-shadow: 0 0 0 3px rgba(61, 90, 128, 0.18); border-color: var(--color-accent); }
+  70%, 100% { box-shadow: 0 0 0 0 rgba(61, 90, 128, 0); border-color: var(--color-border); }
+}
+@keyframes capture-card-rise {
+  0%, 45% { opacity: 0; transform: translateY(10px); }
+  60%, 90% { opacity: 1; transform: translateY(0); }
+  100% { opacity: 0; transform: translateY(-6px); }
+}
+.animate-capture-bar { animation: capture-bar-glow 6s ease-in-out infinite; }
+.animate-capture-card { animation: capture-card-rise 6s ease-in-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-capture-bar, .animate-capture-card {
+    animation: none !important;
+  }
+}
+
+/* Day 5 polish — subtle page entrance + consistent motion */
+@keyframes fade-in-up {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+main > * {
+  animation: fade-in-up 0.35s ease-out;
+}
+* {
+  transition-property: color, background-color, border-color, opacity, transform, box-shadow;
+  transition-duration: 150ms;
+  transition-timing-function: ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  main > * { animation: none !important; }
+  * { transition: none !important; }
+}

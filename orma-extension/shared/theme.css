@@ -1,0 +1,67 @@
+/* Orma extension — shared design tokens (Slate Ledger, locked palette) */
+:root {
+  --bg: #F5F6F8;
+  --surface: #FFFFFF;
+  --surface-alt: #EAECF0;
+  --ink: #22262E;
+  --ink-soft: #6B7280;
+  --accent: #3D5A80;
+  --accent-dark: #2E4762;
+  --accent-soft: #E4E9F2;
+  --border: #DCDFE5;
+  --font-display: 'Sora', system-ui, sans-serif;
+  --font-body: 'Inter', system-ui, sans-serif;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: var(--font-body);
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.brand { display: flex; align-items: center; gap: 10px; }
+.mark {
+  width: 30px; height: 30px; border-radius: 8px;
+  background: var(--accent); color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--font-display); font-weight: 700; font-size: 14px;
+  flex-shrink: 0;
+}
+.brand-name { font-family: var(--font-display); font-weight: 700; font-size: 15px; color: var(--ink); }
+.brand-sub { font-size: 10.5px; color: var(--ink-soft); }
+
+input[type="text"] {
+  width: 100%; padding: 10px 13px; border-radius: 10px;
+  border: 1px solid var(--border); background: var(--surface-alt);
+  font-size: 12.5px; color: var(--ink); font-family: var(--font-body);
+}
+input[type="text"]:focus { outline: none; border-color: var(--accent); }
+
+button.primary {
+  width: 100%; padding: 11px; border: none; border-radius: 10px;
+  background: var(--accent); color: #fff; font-weight: 600; font-size: 13px;
+  cursor: pointer; font-family: var(--font-body);
+}
+button.primary:hover { background: var(--accent-dark); }
+button.primary:disabled { opacity: .6; cursor: default; }
+
+.section-label {
+  font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--ink-soft); font-weight: 700; margin: 16px 0 8px;
+}
+
+.card {
+  border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px;
+  background: var(--bg); margin-bottom: 8px; cursor: pointer;
+}
+.card:hover { border-color: var(--accent); }
+.card-title { font-family: var(--font-display); font-weight: 600; font-size: 13px; color: var(--ink); }
+.card-meta { font-size: 11px; color: var(--ink-soft); margin-top: 3px; display: flex; gap: 6px; align-items: center; }
+.tag {
+  font-size: 9.5px; font-weight: 700; padding: 2px 8px; border-radius: 999px;
+  background: var(--accent-soft); color: var(--accent); border: 1px solid var(--border);
+}
+
+.empty { text-align: center; color: var(--ink-soft); font-size: 12px; padding: 20px 0; }

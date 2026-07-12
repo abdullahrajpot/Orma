@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../shared/theme.css">
+<link rel="stylesheet" href="popup.css">
+<title>Orma</title>
+</head>
+<body>
+  <div class="popup">
+    <header class="head">
+      <div class="brand">
+        <span class="mark">ഓ</span>
+        <div>
+          <div class="brand-name">Orma</div>
+          <div class="brand-sub">Your memory layer</div>
+        </div>
+      </div>
+      <button id="openPanel" class="icon-btn" title="Open chat side panel">💬</button>
+    </header>
+
+    <div class="body">
+      <input id="search" type="text" placeholder="Ask about anything you've read…" />
+
+      <button id="saveBtn" class="primary" style="margin-top:10px;">Save this page</button>
+      <p id="currentTab" class="current-tab"></p>
+
+      <div class="section-label">Recently saved</div>
+      <div id="list"></div>
+    </div>
+
+    <footer class="foot">
+      <span class="foot-item active">Search</span>
+      <span class="foot-item" id="footChat">Chat</span>
+      <span class="foot-item" id="footWorkspaces">Projects</span>
+    </footer>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>
