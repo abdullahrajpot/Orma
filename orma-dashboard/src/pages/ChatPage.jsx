@@ -1,15 +1,11 @@
 import { useState, useRef, useEffect } from 'react'
-import { Send } from 'lucide-react'
-import ChatBubble from '../components/ChatBubble'
-import LoadingIndicator from '../components/LoadingIndicator'
+import { Send, Bot, User } from 'lucide-react'
 import { chatWithMemories } from '../lib/api'
+import LoadingIndicator from '../components/LoadingIndicator'
 
 export default function ChatPage() {
   const [messages, setMessages] = useState([
-    {
-      role: 'assistant',
-      text: "Ask me anything about what you've saved — I'll answer using only your own memories.",
-    },
+    { role: 'assistant', text: "Hello! I am your AI assistant. Ask me anything about your saved memories." }
   ])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
@@ -17,52 +13,55 @@ export default function ChatPage() {
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, loading])
+  }, [messages])
 
   async function handleSend(e) {
     e.preventDefault()
-    const text = input.trim()
-    if (!text || loading) return
+    if (!input.trim()) return
 
-    setMessages((prev) => [...prev, { role: 'user', text }])
+    const userMessage = { role: 'user', text: input }
+    setMessages((prev) => [...prev, userMessage])
     setInput('')
     setLoading(true)
 
-    const { answer, sources } = await chatWithMemories(text)
-    setMessages((prev) => [...prev, { role: 'assistant', text: answer, sources }])
-    setLoading(false)
+    try {
+      // AI call
+      const { answer, sources } = await chatWithMemories(input)
+      setMessages((prev) => [...prev, { role: 'assistant', text: answer, sources }])
+    } catch (err) {
+      setMessages((prev) => [...prev, { role: 'assistant', text: "Sorry, I'm having trouble connecting to the AI." }])
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
-    <div className="flex h-[calc(100vh-9rem)] flex-col md:h-[calc(100vh-5rem)]">
-      <div className="mb-4">
-        <h1 className="font-display text-[22px] font-bold text-ink">Chat with your memory</h1>
-        <p className="mt-1 text-[13.5px] text-ink-soft">
-          Answers are grounded in the pages you've saved, with sources linked.
-        </p>
-      </div>
-
-      <div className="flex-1 space-y-3 overflow-y-auto rounded-xl border border-border bg-bg p-4">
+    <div className="flex flex-col h-[80vh] max-w-3xl mx-auto border rounded-xl bg-white shadow-sm">
+      <div className="p-4 border-b font-bold text-lg">AI Memory Assistant</div>
+      
+      <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.map((m, i) => (
-          <ChatBubble key={i} role={m.role} text={m.text} sources={m.sources} />
+          <div key={i} className={`flex gap-3 ${m.role === 'user' ? 'justify-end' : ''}`}>
+            {m.role === 'assistant' && <Bot size={20} className="text-accent" />}
+            <div className={`p-3 rounded-lg max-w-[80%] ${m.role === 'user' ? 'bg-accent text-white' : 'bg-surface border'}`}>
+              {m.text}
+            </div>
+            {m.role === 'user' && <User size={20} className="text-gray-400" />}
+          </div>
         ))}
-        {loading && <LoadingIndicator label="Reading your saved pages…" />}
+        {loading && <LoadingIndicator label="AI is thinking..." />}
         <div ref={bottomRef} />
       </div>
 
-      <form onSubmit={handleSend} className="mt-4 flex items-center gap-2.5">
+      <form onSubmit={handleSend} className="p-4 border-t flex gap-2">
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder="what did I read about chunk overlap?"
-          className="flex-1 rounded-lg border border-border bg-surface px-3.5 py-2.5 text-[13.5px] text-ink placeholder:text-ink-soft focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20"
+          placeholder="Ask about your memories..."
+          className="flex-1 border rounded-lg p-2 focus:outline-none"
         />
-        <button
-          type="submit"
-          disabled={loading}
-          className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-accent text-white hover:bg-accent-dark disabled:opacity-50"
-        >
-          <Send size={16} strokeWidth={2.2} />
+        <button type="submit" className="bg-accent text-white p-2 rounded-lg hover:bg-accent-dark">
+          <Send size={20} />
         </button>
       </form>
     </div>
