@@ -9,6 +9,8 @@ node_modules/
 .env.development
 .env.production
 .env.*.local
+orma-dashboard/env
+backend/.env
 
 # ── Backend data store (contains user data & passwords) ──────────────────────
 backend/db/data.json
