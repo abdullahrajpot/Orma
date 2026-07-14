@@ -1,40 +1,102 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<link href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="../shared/theme.css">
-<link rel="stylesheet" href="popup.css">
-<title>Orma</title>
+  <meta charset="UTF-8">
+  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../shared/theme.css">
+  <link rel="stylesheet" href="popup.css">
+  <title>Orma</title>
 </head>
 <body>
   <div class="popup">
-    <header class="head">
-      <div class="brand">
-        <span class="mark">ഓ</span>
-        <div>
-          <div class="brand-name">Orma</div>
-          <div class="brand-sub">Your memory layer</div>
+
+    <!-- Auth screen (shown when not logged in) -->
+    <div id="auth-screen">
+      <header class="head">
+        <div class="brand">
+          <span class="mark">ഓ</span>
+          <div>
+            <div class="brand-name">Orma</div>
+            <div class="brand-sub">Sign in to start recording</div>
+          </div>
+        </div>
+      </header>
+      <div class="body">
+        <div id="auth-error" class="auth-error" style="display:none;"></div>
+
+        <div id="login-form">
+          <p class="section-label">Log in</p>
+          <input id="login-email" type="email" placeholder="you@example.com" style="margin-bottom:8px;" />
+          <input id="login-password" type="password" placeholder="Password" style="margin-bottom:10px;" />
+          <button id="loginBtn" class="primary">Log in</button>
+          <p class="switch-link">No account? <a href="#" id="showSignup">Create one</a></p>
+        </div>
+
+        <div id="signup-form" style="display:none;">
+          <p class="section-label">Create account</p>
+          <input id="signup-name" type="text" placeholder="Your name" style="margin-bottom:8px;" />
+          <input id="signup-email" type="email" placeholder="you@example.com" style="margin-bottom:8px;" />
+          <input id="signup-password" type="password" placeholder="Password (min 6 chars)" style="margin-bottom:10px;" />
+          <button id="signupBtn" class="primary">Create account</button>
+          <p class="switch-link">Have an account? <a href="#" id="showLogin">Log in</a></p>
         </div>
       </div>
-      <button id="openPanel" class="icon-btn" title="Open chat side panel">💬</button>
-    </header>
-
-    <div class="body">
-      <input id="search" type="text" placeholder="Ask about anything you've read…" />
-
-      <button id="saveBtn" class="primary" style="margin-top:10px;">Save this page</button>
-      <p id="currentTab" class="current-tab"></p>
-
-      <div class="section-label">Recently saved</div>
-      <div id="list"></div>
     </div>
 
-    <footer class="foot">
-      <span class="foot-item active">Search</span>
-      <span class="foot-item" id="footChat">Chat</span>
-      <span class="foot-item" id="footWorkspaces">Projects</span>
-    </footer>
+    <!-- Main screen (shown when logged in) -->
+    <div id="main-screen" style="display:none;">
+      <header class="head">
+        <div class="brand">
+          <span class="mark">ഓ</span>
+          <div>
+            <div class="brand-name">Orma</div>
+            <div id="user-email" class="brand-sub">recording your memory</div>
+          </div>
+        </div>
+        <button id="openPanel" class="icon-btn" title="Open chat">💬</button>
+      </header>
+
+      <div class="body">
+        <!-- Recording toggle -->
+        <div class="record-card">
+          <div class="record-info">
+            <div id="record-status-dot" class="status-dot off"></div>
+            <div>
+              <div id="record-label" class="record-label">Recording off</div>
+              <div id="capture-count" class="record-sub">0 captures this session</div>
+            </div>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="recordToggle" />
+            <span class="toggle-track"></span>
+          </label>
+        </div>
+
+        <div class="record-hint" id="record-hint">
+          Turn on to automatically capture every page you visit.
+        </div>
+
+        <!-- Manual capture button — visible only when recording -->
+        <button id="captureNowBtn" class="capture-now-btn" style="display:none;">
+          📸 Capture now
+        </button>
+
+        <!-- Quick chat input -->
+        <div class="section-label" style="margin-top:16px;">Ask your memory</div>
+        <div class="quick-chat">
+          <input id="quickAsk" type="text" placeholder="What did I read about…?" />
+          <button id="quickAskBtn" class="ask-btn">➤</button>
+        </div>
+        <div id="quickAnswer" class="quick-answer" style="display:none;"></div>
+
+        <!-- Footer actions -->
+        <div class="actions-row">
+          <button id="openDashboard" class="action-btn">📊 Dashboard</button>
+          <button id="logoutBtn" class="action-btn danger">Sign out</button>
+        </div>
+      </div>
+    </div>
+
   </div>
   <script src="popup.js"></script>
 </body>

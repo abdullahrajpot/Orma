@@ -1,67 +1,113 @@
-// Orma side panel chat — reads saved memories from chrome.storage.local
-// and does a simple client-side keyword match to simulate RAG.
-// Real version: POST the message to `${API_URL}/chat` and stream the
-// response back (see src/lib/api.js in the dashboard project for the
-// exact endpoint contract already agreed with the backend).
+const API = 'http://localhost:5000/api';
+const messagesEl = document.getElementById('messages');
 
-const STORAGE_KEY = 'orma_memories'
-const messagesEl = document.getElementById('messages')
+// ── Helpers ─────────────────────────────────────────────────────────────────
+function formatTime(iso) {
+  try {
+    return new Date(iso).toLocaleString(undefined, {
+      month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+    });
+  } catch { return ''; }
+}
 
-function addBubble(role, text, sources = []) {
-  const div = document.createElement('div')
-  div.className = `bubble ${role}`
-  div.innerHTML = `<div>${text}</div>`
-  if (sources.length) {
-    const srcWrap = document.createElement('div')
+function addBubble(role, html, sources = []) {
+  const div = document.createElement('div');
+  div.className = `bubble ${role}`;
+
+  const content = document.createElement('div');
+  content.innerHTML = html;
+  div.appendChild(content);
+
+  if (sources.length > 0) {
+    const srcContainer = document.createElement('div');
+    srcContainer.className = 'sources';
     sources.forEach((s) => {
-      const span = document.createElement('span')
-      span.className = 'src'
-      span.textContent = s.title
-      span.addEventListener('click', () => chrome.tabs.create({ url: s.url }))
-      srcWrap.appendChild(span)
-    })
-    div.appendChild(srcWrap)
+      const card = document.createElement('div');
+      card.className = 'source-card';
+      card.innerHTML = `
+        ${s.screenshot ? `<img src="${s.screenshot}" alt="${s.title}" loading="lazy">` : ''}
+        <div class="source-card-body">
+          <div class="source-title">${s.title || 'Untitled'}</div>
+          <div class="source-meta">${s.domain || ''} ${s.category ? '· ' + s.category : ''}</div>
+          ${s.capturedAt ? `<div class="source-time">${formatTime(s.capturedAt)}</div>` : ''}
+          ${s.summary ? `<div style="font-size:11px;color:var(--ink-soft);margin-top:4px;line-height:1.4">${s.summary.slice(0, 120)}…</div>` : ''}
+        </div>
+      `;
+      card.addEventListener('click', () => {
+        if (s.url) chrome.tabs.create({ url: s.url });
+      });
+      srcContainer.appendChild(card);
+    });
+    div.appendChild(srcContainer);
   }
-  messagesEl.appendChild(div)
-  messagesEl.scrollTop = messagesEl.scrollHeight
+
+  messagesEl.appendChild(div);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+  return div;
 }
 
-function getMemories() {
+// ── Token ────────────────────────────────────────────────────────────────────
+async function getToken() {
   return new Promise((resolve) => {
-    chrome.storage.local.get([STORAGE_KEY], (res) => resolve(res[STORAGE_KEY] ?? []))
-  })
+    chrome.storage.local.get(['orma_token'], (d) => resolve(d.orma_token ?? null));
+  });
 }
 
-addBubble(
-  'assistant',
-  "Ask me anything about what you've saved — I'll answer using only your own memories."
-)
+// ── Status bar ───────────────────────────────────────────────────────────────
+async function refreshStatus() {
+  chrome.runtime.sendMessage({ type: 'GET_STATUS' }, (status) => {
+    const dot = document.getElementById('rec-dot');
+    const line = document.getElementById('status-line');
+    if (status?.recording) {
+      dot.className = 'rec-dot on';
+      line.textContent = `Recording · ${status.captureCount || 0} captures`;
+    } else {
+      dot.className = 'rec-dot off';
+      line.textContent = 'Not recording';
+    }
+  });
+}
+refreshStatus();
+setInterval(refreshStatus, 5000);
 
+// ── Example chips ─────────────────────────────────────────────────────────────
+document.querySelectorAll('.ex-chip').forEach((chip) => {
+  chip.addEventListener('click', () => {
+    document.getElementById('input').value = chip.dataset.q;
+    document.getElementById('form').dispatchEvent(new Event('submit'));
+  });
+});
+
+// ── Chat form ────────────────────────────────────────────────────────────────
 document.getElementById('form').addEventListener('submit', async (e) => {
-  e.preventDefault()
-  const input = document.getElementById('input')
-  const text = input.value.trim()
-  if (!text) return
+  e.preventDefault();
+  const input = document.getElementById('input');
+  const text = input.value.trim();
+  if (!text) return;
 
-  addBubble('user', text)
-  input.value = ''
+  addBubble('user', text);
+  input.value = '';
 
-  const thinking = document.createElement('div')
-  thinking.className = 'bubble assistant'
-  thinking.textContent = 'Reading your saved pages…'
-  messagesEl.appendChild(thinking)
-  messagesEl.scrollTop = messagesEl.scrollHeight
+  const thinking = addBubble('thinking', 'Searching your memory…');
 
-  const memories = await getMemories()
-  const q = text.toLowerCase()
-  const hit = memories.find((m) => q.split(' ').some((w) => w.length > 3 && m.title.toLowerCase().includes(w)))
-
-  await new Promise((r) => setTimeout(r, 700))
-  thinking.remove()
-
-  if (hit) {
-    addBubble('assistant', `Based on what you saved, here's what's relevant to "${text}".`, [hit])
-  } else {
-    addBubble('assistant', `I couldn't find a saved page closely matching that yet — try saving a few more pages first.`)
+  const token = await getToken();
+  if (!token) {
+    thinking.remove();
+    addBubble('assistant', 'You need to log in via the Orma popup first.');
+    return;
   }
-})
+
+  try {
+    const res = await fetch(`${API}/captures/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ message: text }),
+    });
+    const data = await res.json();
+    thinking.remove();
+    addBubble('assistant', data.answer || 'No answer found.', data.sources || []);
+  } catch (err) {
+    thinking.remove();
+    addBubble('assistant', 'Could not reach the Orma backend. Make sure it\'s running on localhost:5000.');
+  }
+});

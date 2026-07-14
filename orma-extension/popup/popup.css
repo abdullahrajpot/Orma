@@ -1,24 +1,90 @@
-body { width: 360px; }
+body { width: 340px; }
 .popup { display: flex; flex-direction: column; }
+
 .head {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 16px 16px 12px; border-bottom: 1px solid var(--border);
+  padding: 14px 16px 12px; border-bottom: 1px solid var(--border);
 }
 .icon-btn {
   border: 1px solid var(--border); background: var(--surface-alt); border-radius: 8px;
-  width: 30px; height: 30px; cursor: pointer; font-size: 14px;
+  width: 30px; height: 30px; cursor: pointer; font-size: 14px; flex-shrink: 0;
 }
-.body { padding: 14px 16px 6px; }
-.current-tab {
-  margin-top: 8px; font-size: 11px; color: var(--ink-soft);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+.body { padding: 14px 16px 16px; }
+
+/* Auth */
+.auth-error {
+  background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px;
+  padding: 8px 12px; font-size: 12px; color: #dc2626; margin-bottom: 10px;
 }
-#list { max-height: 220px; overflow-y: auto; }
-.foot {
-  display: flex; border-top: 1px solid var(--border); margin-top: 6px;
+.switch-link {
+  text-align: center; font-size: 11.5px; color: var(--ink-soft); margin-top: 10px;
 }
-.foot-item {
-  flex: 1; text-align: center; padding: 11px 0; font-size: 10.5px;
-  font-weight: 600; color: var(--ink-soft); cursor: pointer;
+.switch-link a { color: var(--accent); text-decoration: none; font-weight: 600; }
+
+/* Recording card */
+.record-card {
+  display: flex; align-items: center; justify-content: space-between;
+  background: var(--bg); border: 1px solid var(--border);
+  border-radius: 12px; padding: 12px 14px;
 }
-.foot-item.active { color: var(--accent); }
+.record-info { display: flex; align-items: center; gap: 10px; }
+.status-dot {
+  width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0;
+}
+.status-dot.on { background: #22c55e; box-shadow: 0 0 0 3px rgba(34,197,94,0.2); animation: pulse 2s infinite; }
+.status-dot.off { background: var(--border); }
+@keyframes pulse {
+  0%, 100% { box-shadow: 0 0 0 3px rgba(34,197,94,0.2); }
+  50% { box-shadow: 0 0 0 6px rgba(34,197,94,0.08); }
+}
+.record-label { font-family: var(--font-display); font-weight: 600; font-size: 13.5px; color: var(--ink); }
+.record-sub { font-size: 11px; color: var(--ink-soft); margin-top: 1px; }
+
+/* Toggle switch */
+.toggle-switch { position: relative; display: inline-block; width: 44px; height: 24px; cursor: pointer; }
+.toggle-switch input { opacity: 0; width: 0; height: 0; }
+.toggle-track {
+  position: absolute; inset: 0; background: var(--border); border-radius: 999px;
+  transition: background 0.2s;
+}
+.toggle-switch input:checked + .toggle-track { background: var(--accent); }
+.toggle-track::before {
+  content: ''; position: absolute; left: 3px; top: 3px;
+  width: 18px; height: 18px; background: white; border-radius: 50%;
+  transition: transform 0.2s; box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+}
+.toggle-switch input:checked + .toggle-track::before { transform: translateX(20px); }
+
+.record-hint { font-size: 11.5px; color: var(--ink-soft); margin-top: 8px; line-height: 1.4; }
+
+.capture-now-btn {
+  width: 100%; margin-top: 8px; padding: 8px;
+  background: var(--accent-soft); border: 1px solid var(--accent);
+  border-radius: 8px; color: var(--accent); font-size: 12px;
+  font-weight: 600; cursor: pointer;
+}
+.capture-now-btn:hover { background: var(--accent); color: #fff; }
+
+/* Quick chat */
+.quick-chat { display: flex; gap: 6px; margin-top: 6px; }
+.quick-chat input { flex: 1; }
+.ask-btn {
+  width: 36px; height: 36px; background: var(--accent); color: white;
+  border: none; border-radius: 8px; cursor: pointer; font-size: 13px; flex-shrink: 0;
+}
+.ask-btn:hover { background: var(--accent-dark); }
+.quick-answer {
+  margin-top: 8px; background: var(--bg); border: 1px solid var(--border);
+  border-radius: 10px; padding: 10px 12px; font-size: 12px;
+  color: var(--ink); line-height: 1.5; max-height: 120px; overflow-y: auto;
+}
+
+/* Actions */
+.actions-row { display: flex; gap: 8px; margin-top: 16px; }
+.action-btn {
+  flex: 1; padding: 8px; border: 1px solid var(--border);
+  background: var(--surface-alt); border-radius: 8px; font-size: 11.5px;
+  font-weight: 600; color: var(--ink); cursor: pointer;
+}
+.action-btn:hover { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+.action-btn.danger:hover { background: #fef2f2; border-color: #fca5a5; color: #dc2626; }

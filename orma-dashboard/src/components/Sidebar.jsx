@@ -1,10 +1,11 @@
-import { NavLink } from 'react-router-dom'
-import { Home, MessageSquare, Plus, Settings, User, FolderKanban } from 'lucide-react'
+import { NavLink, useNavigate } from 'react-router-dom'
+import { Home, Clock, MessageSquare, Settings, User, LogOut } from 'lucide-react'
+import { useAuth } from '../lib/AuthContext'
 
 const links = [
-  { to: '/app', label: 'Memories', icon: Home, end: true },
-  { to: '/app/workspace', label: 'Workspaces', icon: FolderKanban },
-  { to: '/app/chat', label: 'Chat', icon: MessageSquare },
+  { to: '/app', label: 'Dashboard', icon: Home, end: true },
+  { to: '/app/timeline', label: 'Timeline', icon: Clock },
+  { to: '/app/chat', label: 'AI Chat', icon: MessageSquare },
   { to: '/app/settings', label: 'Settings', icon: Settings },
   { to: '/app/profile', label: 'Profile', icon: User },
 ]
@@ -17,6 +18,14 @@ function linkClasses({ isActive }) {
 }
 
 export default function Sidebar() {
+  const { user, logout } = useAuth()
+  const navigate = useNavigate()
+
+  function handleLogout() {
+    logout()
+    navigate('/')
+  }
+
   return (
     <>
       {/* Desktop sidebar */}
@@ -28,16 +37,6 @@ export default function Sidebar() {
           <span className="font-display text-[15px] font-bold text-ink">Orma</span>
         </div>
 
-        <div className="px-3 pt-4">
-          <NavLink
-            to="/app/save"
-            className="flex w-full items-center justify-center gap-2 rounded-lg bg-accent px-3 py-2.5 text-[13px] font-semibold text-white hover:bg-accent-dark"
-          >
-            <Plus size={16} strokeWidth={2.5} />
-            Save a page
-          </NavLink>
-        </div>
-
         <nav className="flex-1 space-y-1 px-3 py-4">
           {links.map(({ to, label, icon: Icon, end }) => (
             <NavLink key={to} to={to} end={end} className={linkClasses}>
@@ -47,9 +46,21 @@ export default function Sidebar() {
           ))}
         </nav>
 
-        <div className="border-t border-border p-4 text-[11.5px] text-ink-soft">
-          Orma (ഓർമ്മ) — memory, in Malayalam.
-        </div>
+        {user && (
+          <div className="border-t border-border p-3">
+            <div className="mb-2 rounded-lg px-3 py-2 text-[12px] text-ink-soft">
+              <p className="font-medium text-ink truncate">{user.name}</p>
+              <p className="truncate">{user.email}</p>
+            </div>
+            <button
+              onClick={handleLogout}
+              className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-[12.5px] font-medium text-ink-soft hover:bg-surface-alt hover:text-ink"
+            >
+              <LogOut size={14} strokeWidth={2} />
+              Sign out
+            </button>
+          </div>
+        )}
       </aside>
 
       {/* Mobile bottom nav */}
@@ -60,23 +71,14 @@ export default function Sidebar() {
             to={to}
             end={end}
             className={({ isActive }) =>
-              [
-                'flex flex-1 flex-col items-center gap-1 py-2.5 text-[10.5px] font-medium',
-                isActive ? 'text-accent' : 'text-ink-soft',
-              ].join(' ')
+              ['flex flex-1 flex-col items-center gap-1 py-2.5 text-[10.5px] font-medium',
+               isActive ? 'text-accent' : 'text-ink-soft'].join(' ')
             }
           >
             <Icon size={18} strokeWidth={2} />
             {label}
           </NavLink>
         ))}
-        <NavLink
-          to="/app/save"
-          className="flex flex-1 flex-col items-center gap-1 py-2.5 text-[10.5px] font-medium text-accent"
-        >
-          <Plus size={18} strokeWidth={2} />
-          Save
-        </NavLink>
       </nav>
     </>
   )

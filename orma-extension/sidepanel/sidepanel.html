@@ -1,26 +1,36 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<link href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="../shared/theme.css">
-<link rel="stylesheet" href="sidepanel.css">
-<title>Orma — Chat</title>
+  <meta charset="UTF-8">
+  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../shared/theme.css">
+  <link rel="stylesheet" href="sidepanel.css">
+  <title>Orma — Memory Chat</title>
 </head>
 <body>
   <div class="panel">
     <header class="head">
       <span class="mark">ഓ</span>
       <div>
-        <div class="brand-name">Chat with your memory</div>
-        <div class="brand-sub">Answers use only what you've saved</div>
+        <div class="brand-name">Ask your memory</div>
+        <div class="brand-sub" id="status-line">Loading…</div>
       </div>
+      <div id="rec-dot" class="rec-dot off" title="Recording status"></div>
     </header>
 
-    <div id="messages" class="messages"></div>
+    <div id="messages" class="messages">
+      <div class="bubble assistant">
+        <div>Hi! I'm your Orma memory assistant. Ask me anything about what you've browsed — I'll answer using your captured screenshots and pages.</div>
+        <div class="examples">
+          <span class="ex-chip" data-q="What did I read yesterday?">What did I read yesterday?</span>
+          <span class="ex-chip" data-q="What videos did I watch today?">What videos did I watch?</span>
+          <span class="ex-chip" data-q="What was that article about AI?">That article about AI?</span>
+        </div>
+      </div>
+    </div>
 
     <form id="form" class="composer">
-      <input id="input" type="text" placeholder="what did I read about chunk overlap?" autocomplete="off" />
+      <input id="input" type="text" placeholder="What did I read/watch…?" autocomplete="off" />
       <button type="submit" class="send">➤</button>
     </form>
   </div>

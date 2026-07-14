@@ -1,150 +1,257 @@
-// Orma popup — real chrome.storage.local persistence, real active-tab read.
-// No backend required for this to work; swap STORAGE_KEY reads/writes for
-// fetch() calls to the Orma API once Mahnoor/Abdullah's backend is live.
+const API = 'http://localhost:5000/api';
+let statusInterval = null;
 
-const STORAGE_KEY = 'orma_memories'
-
-const seedMemories = [
-  {
-    id: 's1',
-    title: 'Vector Databases, Explained',
-    domain: 'pinecone.io',
-    url: 'https://pinecone.io/learn/vector-databases',
-    project: 'RAG Research',
-    savedAt: Date.now() - 1000 * 60 * 60 * 24 * 2,
-  },
-  {
-    id: 's2',
-    title: 'Chunking Strategies for RAG',
-    domain: 'docs.llamaindex.ai',
-    url: 'https://docs.llamaindex.ai/chunking',
-    project: 'RAG Research',
-    savedAt: Date.now() - 1000 * 60 * 60 * 24 * 2,
-  },
-  {
-    id: 's3',
-    title: 'Manifest V3 Migration Guide',
-    domain: 'developer.chrome.com',
-    url: 'https://developer.chrome.com/docs/extensions/mv3',
-    project: 'Extension Build',
-    savedAt: Date.now() - 1000 * 60 * 60 * 24 * 3,
-  },
-]
-
-function getStore() {
-  return new Promise((resolve) => {
-    chrome.storage.local.get([STORAGE_KEY], (res) => {
-      resolve(res[STORAGE_KEY] ?? null)
-    })
-  })
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function showScreen(id) {
+  document.getElementById('auth-screen').style.display = id === 'auth' ? '' : 'none';
+  document.getElementById('main-screen').style.display = id === 'main' ? '' : 'none';
 }
 
-function setStore(list) {
-  return new Promise((resolve) => {
-    chrome.storage.local.set({ [STORAGE_KEY]: list }, resolve)
-  })
+function showAuthError(msg) {
+  const el = document.getElementById('auth-error');
+  el.textContent = msg;
+  el.style.display = '';
 }
 
-function timeAgo(ts) {
-  const days = Math.floor((Date.now() - ts) / (1000 * 60 * 60 * 24))
-  if (days <= 0) return 'today'
-  if (days === 1) return '1 day ago'
-  return `${days} days ago`
+function hideAuthError() {
+  document.getElementById('auth-error').style.display = 'none';
 }
 
-function render(list, query = '') {
-  const el = document.getElementById('list')
-  const q = query.trim().toLowerCase()
-  const filtered = q ? list.filter((m) => m.title.toLowerCase().includes(q)) : list
-
-  if (filtered.length === 0) {
-    el.innerHTML = `<p class="empty">Nothing saved yet.</p>`
-    return
-  }
-
-  el.innerHTML = filtered
-    .slice(0, 6)
-    .map(
-      (m) => `
-      <div class="card" data-url="${m.url}">
-        <div class="card-title">${m.title}</div>
-        <div class="card-meta">
-          <span>${m.domain}</span>
-          <span class="tag">${m.project}</span>
-        </div>
-      </div>`
-    )
-    .join('')
-
-  el.querySelectorAll('.card').forEach((card) => {
-    card.addEventListener('click', () => {
-      chrome.tabs.create({ url: card.dataset.url })
-    })
-  })
+async function apiPost(path, body) {
+  const res = await fetch(`${API}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  return { status: res.status, data: await res.json().catch(() => ({})) };
 }
 
+// ── Read state directly from storage (source of truth) ───────────────────────
+async function readState() {
+  return new Promise(resolve => {
+    chrome.storage.local.get(
+      ['orma_recording', 'orma_token', 'orma_capture_count', 'orma_user'],
+      resolve
+    );
+  });
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
 async function init() {
-  let list = await getStore()
-  if (!list) {
-    list = seedMemories
-    await setStore(list)
-  }
-  render(list)
+  const state = await readState();
 
-  // Show current tab so the person knows what "Save this page" will capture
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
-  const currentTabEl = document.getElementById('currentTab')
-  if (tab?.url) {
-    currentTabEl.textContent = `Will save: ${tab.title}`
+  if (!state.orma_token) {
+    showScreen('auth');
+    return;
   }
 
-  document.getElementById('search').addEventListener('input', (e) => {
-    render(list, e.target.value)
-  })
-
-  document.getElementById('saveBtn').addEventListener('click', async () => {
-    const btn = document.getElementById('saveBtn')
-    btn.disabled = true
-    btn.textContent = 'Saving…'
-
-    const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true })
-    let domain = ''
-    try {
-      domain = new URL(activeTab.url).hostname.replace('www.', '')
-    } catch {
-      domain = activeTab.url
+  // Try to verify with backend, but don't block on it
+  let user = state.orma_user || null;
+  try {
+    const res = await fetch(`${API}/auth/me`, {
+      headers: { Authorization: `Bearer ${state.orma_token}` },
+    });
+    if (res.ok) {
+      user = await res.json();
+      chrome.storage.local.set({ orma_user: user });
+    } else if (res.status === 401) {
+      // Token expired
+      chrome.storage.local.remove(['orma_token', 'orma_user']);
+      showScreen('auth');
+      return;
     }
+  } catch {
+    // Backend offline — use cached user
+  }
 
-    // Simulates: content script extraction → chunk → embed → summarize.
-    // Real version: chrome.tabs.sendMessage(activeTab.id, {type: 'EXTRACT'})
-    // then POST the cleaned content to the Orma backend.
-    await new Promise((r) => setTimeout(r, 700))
-
-    const newMemory = {
-      id: String(Date.now()),
-      title: activeTab.title,
-      domain,
-      url: activeTab.url,
-      project: 'Unsorted',
-      savedAt: Date.now(),
-    }
-    list = [newMemory, ...list]
-    await setStore(list)
-    render(list)
-
-    btn.textContent = 'Saved ✓'
-    setTimeout(() => {
-      btn.textContent = 'Save this page'
-      btn.disabled = false
-    }, 1200)
-  })
-
-  document.getElementById('openPanel').addEventListener('click', () => {
-    chrome.sidePanel.open({ windowId: tab.windowId })
-  })
-  document.getElementById('footChat').addEventListener('click', () => {
-    chrome.sidePanel.open({ windowId: tab.windowId })
-  })
+  showMainScreen(state.orma_token, user || { email: 'offline mode' });
 }
 
-init()
+// ── Main screen ───────────────────────────────────────────────────────────────
+function showMainScreen(token, user) {
+  showScreen('main');
+  document.getElementById('user-email').textContent =
+    user?.email || user?.name || 'recording your memory';
+
+  // Read recording state directly from storage — don't trust service worker messages
+  syncUI();
+
+  // Poll every 2 seconds to keep UI in sync
+  if (statusInterval) clearInterval(statusInterval);
+  statusInterval = setInterval(syncUI, 2000);
+
+  // Toggle handler
+  const toggle = document.getElementById('recordToggle');
+  toggle.addEventListener('change', async (e) => {
+    const on = e.target.checked;
+    // Disable toggle during transition to prevent double-clicks
+    toggle.disabled = true;
+
+    if (on) {
+      // Send to service worker and also write directly to storage as backup
+      await chrome.storage.local.set({ orma_recording: true });
+      chrome.runtime.sendMessage({ type: 'START_RECORDING', token }, () => {
+        toggle.disabled = false;
+        syncUI();
+      });
+    } else {
+      await chrome.storage.local.set({ orma_recording: false });
+      chrome.runtime.sendMessage({ type: 'STOP_RECORDING' }, () => {
+        toggle.disabled = false;
+        syncUI();
+      });
+    }
+  });
+
+  // Capture now button
+  document.getElementById('captureNowBtn').addEventListener('click', async () => {
+    const btn = document.getElementById('captureNowBtn');
+    btn.textContent = 'Capturing…';
+    btn.disabled = true;
+    chrome.runtime.sendMessage({ type: 'FORCE_CAPTURE' }, () => {
+      setTimeout(() => {
+        btn.textContent = '📸 Capture now';
+        btn.disabled = false;
+        syncUI();
+      }, 2000);
+    });
+  });
+}
+
+async function syncUI() {
+  const state = await readState();
+  const recording = state.orma_recording ?? false;
+  const count = state.orma_capture_count ?? 0;
+
+  // Update toggle (only if not being interacted with)
+  const toggle = document.getElementById('recordToggle');
+  if (!toggle.disabled) toggle.checked = recording;
+
+  // Status dot
+  const dot = document.getElementById('record-status-dot');
+  dot.className = 'status-dot ' + (recording ? 'on' : 'off');
+
+  // Labels
+  document.getElementById('record-label').textContent =
+    recording ? 'Recording…' : 'Recording off';
+  document.getElementById('record-hint').textContent = recording
+    ? 'Captures on every page visit and tab switch.'
+    : 'Turn on to automatically capture every page you visit.';
+  document.getElementById('capture-count').textContent =
+    `${count} capture${count !== 1 ? 's' : ''} this session`;
+
+  // Show/hide capture now button
+  document.getElementById('captureNowBtn').style.display = recording ? '' : 'none';
+}
+
+// ── Auth: login ───────────────────────────────────────────────────────────────
+document.getElementById('showSignup').addEventListener('click', (e) => {
+  e.preventDefault();
+  document.getElementById('login-form').style.display = 'none';
+  document.getElementById('signup-form').style.display = '';
+  hideAuthError();
+});
+
+document.getElementById('showLogin').addEventListener('click', (e) => {
+  e.preventDefault();
+  document.getElementById('signup-form').style.display = 'none';
+  document.getElementById('login-form').style.display = '';
+  hideAuthError();
+});
+
+document.getElementById('loginBtn').addEventListener('click', async () => {
+  const email = document.getElementById('login-email').value.trim();
+  const password = document.getElementById('login-password').value;
+  if (!email || !password) return showAuthError('Email and password required.');
+
+  const btn = document.getElementById('loginBtn');
+  btn.textContent = 'Logging in…'; btn.disabled = true;
+  const { status, data } = await apiPost('/auth/login', { email, password });
+  btn.textContent = 'Log in'; btn.disabled = false;
+
+  if (status === 200) {
+    await chrome.storage.local.set({ orma_token: data.token, orma_user: data.user });
+    chrome.runtime.sendMessage({ type: 'SET_TOKEN', token: data.token });
+    showMainScreen(data.token, data.user);
+  } else {
+    showAuthError(data.error || 'Login failed. Check your credentials.');
+  }
+});
+
+// ── Auth: signup ──────────────────────────────────────────────────────────────
+document.getElementById('signupBtn').addEventListener('click', async () => {
+  const name = document.getElementById('signup-name').value.trim();
+  const email = document.getElementById('signup-email').value.trim();
+  const password = document.getElementById('signup-password').value;
+  if (!name || !email || !password) return showAuthError('All fields required.');
+
+  const btn = document.getElementById('signupBtn');
+  btn.textContent = 'Creating…'; btn.disabled = true;
+  const { status, data } = await apiPost('/auth/signup', { name, email, password });
+  btn.textContent = 'Create account'; btn.disabled = false;
+
+  if (status === 201) {
+    await chrome.storage.local.set({ orma_token: data.token, orma_user: data.user });
+    chrome.runtime.sendMessage({ type: 'SET_TOKEN', token: data.token });
+    showMainScreen(data.token, data.user);
+  } else {
+    showAuthError(data.error || 'Signup failed. Try again.');
+  }
+});
+
+// ── Quick ask ──────────────────────────────────────────────────────────────────
+document.getElementById('quickAskBtn').addEventListener('click', quickAsk);
+document.getElementById('quickAsk').addEventListener('keydown', e => {
+  if (e.key === 'Enter') quickAsk();
+});
+
+async function quickAsk() {
+  const input = document.getElementById('quickAsk');
+  const q = input.value.trim();
+  if (!q) return;
+
+  const answerEl = document.getElementById('quickAnswer');
+  answerEl.style.display = '';
+  answerEl.textContent = 'Searching your memory…';
+
+  const state = await readState();
+  if (!state.orma_token) { answerEl.textContent = 'Please log in first.'; return; }
+
+  try {
+    const res = await fetch(`${API}/captures/chat`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${state.orma_token}`,
+      },
+      body: JSON.stringify({ message: q }),
+    });
+    const data = await res.json();
+    answerEl.textContent = data.answer || 'No answer found.';
+  } catch {
+    answerEl.textContent = 'Could not reach the backend. Is it running on port 5000?';
+  }
+}
+
+// ── Other buttons ─────────────────────────────────────────────────────────────
+document.getElementById('openPanel').addEventListener('click', async () => {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  chrome.sidePanel.open({ windowId: tab?.windowId });
+});
+
+document.getElementById('openDashboard').addEventListener('click', () => {
+  chrome.tabs.create({ url: 'http://localhost:5173' });
+});
+
+document.getElementById('logoutBtn').addEventListener('click', async () => {
+  if (statusInterval) clearInterval(statusInterval);
+  chrome.runtime.sendMessage({ type: 'CLEAR_TOKEN' });
+  await chrome.storage.local.remove([
+    'orma_token', 'orma_user', 'orma_capture_count', 'orma_recording',
+  ]);
+  chrome.action.setBadgeText({ text: '' });
+  showScreen('auth');
+});
+
+// ── Boot ───────────────────────────────────────────────────────────────────────
+init();

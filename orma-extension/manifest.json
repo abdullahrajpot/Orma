@@ -1,14 +1,21 @@
 {
   "manifest_version": 3,
-  "name": "Orma — Your memory layer for the web",
-  "version": "1.0.0",
-  "description": "Save, search, and chat with everything you've read online.",
+  "name": "Orma — Automatic Screen Memory",
+  "version": "3.0.0",
+  "description": "Orma records your browsing automatically. Ask it anything about what you saw, read, or watched — days later.",
   "icons": {
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
   },
-  "permissions": ["storage", "activeTab", "sidePanel", "scripting"],
+  "permissions": [
+    "storage",
+    "activeTab",
+    "tabs",
+    "sidePanel",
+    "scripting",
+    "alarms"
+  ],
   "host_permissions": ["<all_urls>"],
   "background": {
     "service_worker": "background/service-worker.js",
@@ -28,7 +35,8 @@
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["content/content-script.js"]
+      "js": ["content/content-script.js"],
+      "run_at": "document_idle"
     }
   ]
 }
