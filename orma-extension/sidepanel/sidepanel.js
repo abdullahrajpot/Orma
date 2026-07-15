@@ -61,17 +61,31 @@ async function getToken() {
 
 // ── Status bar ───────────────────────────────────────────────────────────────
 async function refreshStatus() {
-  chrome.runtime.sendMessage({ type: 'GET_STATUS' }, (status) => {
+  try {
+    chrome.runtime.sendMessage({ type: 'GET_STATUS' }, (status) => {
+      const dot = document.getElementById('rec-dot');
+      const line = document.getElementById('status-line');
+      if (chrome.runtime.lastError) {
+        dot.className = 'rec-dot off';
+        line.textContent = 'Not recording';
+        return;
+      }
+      if (status?.recording) {
+        dot.className = 'rec-dot on';
+        line.textContent = `Recording · ${status.captureCount || 0} captures`;
+      } else {
+        dot.className = 'rec-dot off';
+        line.textContent = 'Not recording';
+      }
+    });
+  } catch (e) {
     const dot = document.getElementById('rec-dot');
     const line = document.getElementById('status-line');
-    if (status?.recording) {
-      dot.className = 'rec-dot on';
-      line.textContent = `Recording · ${status.captureCount || 0} captures`;
-    } else {
+    if (dot && line) {
       dot.className = 'rec-dot off';
       line.textContent = 'Not recording';
     }
-  });
+  }
 }
 refreshStatus();
 setInterval(refreshStatus, 5000);

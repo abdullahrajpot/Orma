@@ -30,7 +30,7 @@ async function apiPost(path, body) {
 async function readState() {
   return new Promise(resolve => {
     chrome.storage.local.get(
-      ['orma_recording', 'orma_token', 'orma_capture_count', 'orma_user'],
+      ['orma_recording', 'orma_token', 'orma_capture_count', 'orma_user', 'orma_capture_interval', 'orma_groq_api_key'],
       resolve
     );
   });
@@ -75,6 +75,7 @@ function showMainScreen(token, user) {
 
   // Read recording state directly from storage — don't trust service worker messages
   syncUI();
+  loadSettingsIntoForm();
 
   // Poll every 2 seconds to keep UI in sync
   if (statusInterval) clearInterval(statusInterval);
@@ -144,6 +145,37 @@ async function syncUI() {
   document.getElementById('captureNowBtn').style.display = recording ? '' : 'none';
 }
 
+function loadSettingsIntoForm() {
+  const intervalInput = document.getElementById('captureIntervalInput');
+  const apiKeyInput = document.getElementById('apiKeyInput');
+  if (!intervalInput || !apiKeyInput) return;
+
+  chrome.storage.local.get(['orma_capture_interval', 'orma_groq_api_key'], (data) => {
+    intervalInput.value = data.orma_capture_interval || 30;
+    apiKeyInput.value = data.orma_groq_api_key || '';
+  });
+}
+
+async function saveSettings() {
+  const intervalInput = document.getElementById('captureIntervalInput');
+  const apiKeyInput = document.getElementById('apiKeyInput');
+  const statusEl = document.getElementById('settingsStatus');
+
+  if (!intervalInput || !apiKeyInput || !statusEl) return;
+
+  const interval = Math.max(10, parseInt(intervalInput.value, 10) || 30);
+  const apiKey = apiKeyInput.value.trim();
+
+  await chrome.storage.local.set({
+    orma_capture_interval: interval,
+    orma_groq_api_key: apiKey,
+  });
+
+  chrome.runtime.sendMessage({ type: 'UPDATE_SETTINGS', interval, apiKey }, () => {
+    statusEl.textContent = 'Settings saved.';
+  });
+}
+
 // ── Auth: login ───────────────────────────────────────────────────────────────
 document.getElementById('showSignup').addEventListener('click', (e) => {
   e.preventDefault();
@@ -199,6 +231,10 @@ document.getElementById('signupBtn').addEventListener('click', async () => {
   } else {
     showAuthError(data?.error || 'Signup failed. Try again.');
   }
+});
+
+document.getElementById('saveSettingsBtn').addEventListener('click', async () => {
+  await saveSettings();
 });
 
 // ── Quick ask ──────────────────────────────────────────────────────────────────

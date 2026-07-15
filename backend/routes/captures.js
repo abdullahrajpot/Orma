@@ -12,14 +12,14 @@ const TEXT_MODEL = 'llama-3.3-70b-versatile';
 const VISION_MODEL = 'meta-llama/llama-4-scout-17b-16e-instruct';
 
 // ── Key helper ────────────────────────────────────────────────────────────────
-function getGroqKey() {
-  const k = process.env.GROQ_API_KEY;
-  return k && !k.startsWith('your_') ? k : null;
+function getGroqKey(requestKey) {
+  const candidate = requestKey || process.env.GROQ_API_KEY;
+  return candidate && !candidate.startsWith('your_') ? candidate : null;
 }
 
 // ── Text-only Groq call ───────────────────────────────────────────────────────
-async function groqText(system, user, maxTokens = 500) {
-  const key = getGroqKey();
+async function groqText(system, user, maxTokens = 500, requestKey = null) {
+  const key = getGroqKey(requestKey);
   if (!key) { console.error('[Groq/text] No API key'); return null; }
   try {
     const res = await axios.post(
@@ -45,8 +45,8 @@ async function groqText(system, user, maxTokens = 500) {
 
 // ── Vision Groq call — reads a screenshot ────────────────────────────────────
 // Returns a plain-English description of what's visible on screen
-async function groqVision(screenshotBase64, pageTitle, pageUrl) {
-  const key = getGroqKey();
+async function groqVision(screenshotBase64, pageTitle, pageUrl, requestKey = null) {
+  const key = getGroqKey(requestKey);
   if (!key || !screenshotBase64) return null;
 
   // Must be a valid base64 data URL
@@ -116,6 +116,7 @@ function deleteCapture(id, userId) {
 router.post('/', requireAuth, async (req, res) => {
   try {
     const { url, title, domain, pageText, screenshot } = req.body;
+    const requestKey = req.headers['x-groq-api-key'] || null;
     if (!url) return res.status(400).json({ error: 'url is required' });
 
     if (
@@ -145,7 +146,7 @@ router.post('/', requireAuth, async (req, res) => {
 
     // ── Background AI analysis (after responding) ─────────────────────────
     setImmediate(async () => {
-      const key = getGroqKey();
+      const key = getGroqKey(requestKey);
       if (!key) return;
 
       let summary = '';
@@ -155,7 +156,7 @@ router.post('/', requireAuth, async (req, res) => {
       // 1. Vision — read the screenshot
       if (screenshot) {
         console.log(`[Vision] Analyzing screenshot for: ${title}`);
-        visualDescription = await groqVision(screenshot, title, url) || '';
+        visualDescription = await groqVision(screenshot, title, url, requestKey) || '';
         if (visualDescription) console.log(`[Vision] Done: ${visualDescription.slice(0, 80)}…`);
       }
 
@@ -169,7 +170,9 @@ router.post('/', requireAuth, async (req, res) => {
       if (textForSummary) {
         const aiReply = await groqText(
           'You are a concise assistant. Given a web page title, visual description, and text, output ONLY valid JSON: {"summary":"one or two sentence summary of what this page is about and what was happening","category":"..."}. Category must be one of: Article, Video, Social, Shopping, Research, News, Entertainment, Dev/Tech, Other. Output JSON only, no explanation.',
-          textForSummary
+          textForSummary,
+          500,
+          requestKey
         );
         if (aiReply) {
           try {
@@ -257,7 +260,7 @@ router.post('/reanalyze', requireAuth, async (req, res) => {
   // Process in background
   setImmediate(async () => {
     for (const c of needsVision.slice(0, 50)) { // max 50 at a time
-      const vd = await groqVision(c.screenshot, c.title, c.url);
+      const vd = await groqVision(c.screenshot, c.title, c.url, req.headers['x-groq-api-key'] || null);
       if (vd) {
         updateCapture(c._id, { visualDescription: vd });
         console.log(`[Reanalyze] ${c.title}: ${vd.slice(0, 60)}…`);
@@ -361,7 +364,7 @@ router.post('/chat', requireAuth, async (req, res) => {
     }));
 
     // ── AI answer ─────────────────────────────────────────────────────────────
-    const key = getGroqKey();
+    const key = getGroqKey(req.headers['x-groq-api-key'] || null);
     console.log('[chat] Groq key present:', !!key, '| topCaptures:', topCaptures.length);
 
     if (key) {
@@ -416,7 +419,7 @@ ${context}
 
 Now answer the question "${message}" using the specific details from the captures above.`;
 
-      const aiAnswer = await groqText(systemPrompt, userPrompt, 700);
+      const aiAnswer = await groqText(systemPrompt, userPrompt, 700, req.headers['x-groq-api-key'] || null);
       console.log('[chat] Groq answer:', aiAnswer ? aiAnswer.slice(0, 100) + '...' : 'NULL — falling back');
 
       if (aiAnswer) return res.json({ answer: aiAnswer, sources });

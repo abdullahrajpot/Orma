@@ -11,7 +11,9 @@
 
 const API_BASE = 'http://localhost:5000/api';
 const ALARM_NAME = 'orma_heartbeat';
-const HEARTBEAT_SECONDS = 30;
+const DEFAULT_HEARTBEAT_SECONDS = 30;
+let heartbeatSeconds = DEFAULT_HEARTBEAT_SECONDS;
+let periodicTimer = null;
 
 // Per-tab debounce: don't capture the same tab twice within N ms
 const recentCaptures = new Map(); // tabId → timestamp
@@ -22,9 +24,11 @@ async function onStartup() {
   console.log('[Orma SW] startup');
   try { chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: false }); } catch {}
 
-  const data = await chrome.storage.local.get(['orma_recording', 'orma_token']);
+  const data = await chrome.storage.local.get(['orma_recording', 'orma_token', 'orma_capture_interval', 'orma_groq_api_key']);
+  heartbeatSeconds = Number(data.orma_capture_interval) || DEFAULT_HEARTBEAT_SECONDS;
   if (data.orma_recording && data.orma_token) {
     ensureHeartbeat();
+    startPeriodicTimer();
     console.log('[Orma SW] Resumed recording on startup');
   }
 }
@@ -47,7 +51,7 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   if (!data.orma_recording || !data.orma_token) return;
 
   console.log('[Orma SW] Tab updated (complete):', tab.url?.slice(0, 60));
-  scheduleCapture(tabId, tab, data.orma_token, 800); // small delay for page render
+  scheduleCapture(tabId, tab, data.orma_token, 800);
 });
 
 // ── Tab switch — fires when user switches to a different tab ─────────────────
@@ -80,7 +84,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   try {
     const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
     if (tab && !isSystemPage(tab.url || '')) {
-      scheduleCapture(tab.id, tab, data.orma_token, 0);
+      scheduleCapture(tab.id, tab, data.orma_token, 0, true);
     }
   } catch (e) {
     console.warn('[Orma SW] Heartbeat capture error:', e.message);
@@ -103,19 +107,45 @@ function ensureHeartbeat() {
   chrome.alarms.get(ALARM_NAME, (alarm) => {
     if (!alarm) {
       chrome.alarms.create(ALARM_NAME, {
-        delayInSeconds: HEARTBEAT_SECONDS,
-        periodInSeconds: HEARTBEAT_SECONDS,
+        delayInSeconds: heartbeatSeconds,
+        periodInSeconds: heartbeatSeconds,
       });
-      console.log('[Orma SW] Heartbeat alarm created');
+      console.log('[Orma SW] Heartbeat alarm created every', heartbeatSeconds, 's');
     }
   });
 }
 
+function startPeriodicTimer() {
+  if (periodicTimer) clearInterval(periodicTimer);
+  periodicTimer = setInterval(async () => {
+    try {
+      const data = await chrome.storage.local.get(['orma_recording', 'orma_token']);
+      if (!data.orma_recording || !data.orma_token) {
+        stopPeriodicTimer();
+        return;
+      }
+      const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+      if (tab && !isSystemPage(tab.url || '')) {
+        scheduleCapture(tab.id, tab, data.orma_token, 0, true);
+      }
+    } catch (e) {
+      console.warn('[Orma SW] Periodic timer capture error:', e.message);
+    }
+  }, Math.max(heartbeatSeconds, 10) * 1000);
+}
+
+function stopPeriodicTimer() {
+  if (periodicTimer) {
+    clearInterval(periodicTimer);
+    periodicTimer = null;
+  }
+}
+
 // Debounced capture scheduler
-function scheduleCapture(tabId, tab, token, delayMs) {
+function scheduleCapture(tabId, tab, token, delayMs, force = false) {
   const now = Date.now();
   const last = recentCaptures.get(tabId) || 0;
-  if (now - last < DEBOUNCE_MS) {
+  if (!force && now - last < DEBOUNCE_MS) {
     console.log('[Orma SW] Debounced tab', tabId, 'last captured', Math.round((now - last) / 1000), 's ago');
     return;
   }
@@ -156,6 +186,19 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     chrome.storage.local.set({ orma_token: msg.token }, () => sendResponse({ ok: true }));
     return true;
   }
+  if (msg.type === 'UPDATE_SETTINGS') {
+    heartbeatSeconds = Math.max(10, Number(msg.interval) || DEFAULT_HEARTBEAT_SECONDS);
+    chrome.storage.local.set({
+      orma_capture_interval: heartbeatSeconds,
+      orma_groq_api_key: msg.apiKey || '',
+    }, async () => {
+      await chrome.alarms.clear(ALARM_NAME);
+      ensureHeartbeat();
+      startPeriodicTimer();
+      sendResponse({ ok: true });
+    });
+    return true;
+  }
   if (msg.type === 'CLEAR_TOKEN') {
     stopRecording().then(() => {
       chrome.storage.local.set({ orma_token: null, orma_recording: false });
@@ -186,6 +229,7 @@ async function startRecording(token) {
   if (token) await chrome.storage.local.set({ orma_token: token });
   await chrome.storage.local.set({ orma_recording: true });
   ensureHeartbeat();
+  startPeriodicTimer();
 
   // Immediate capture of current tab
   try {
@@ -199,12 +243,16 @@ async function startRecording(token) {
     console.warn('[Orma SW] Start immediate capture failed:', e.message);
   }
 
+  // Ensure periodic captures continue even if the page does not change.
+  ensureHeartbeat();
+
   console.log('[Orma SW] Recording started');
 }
 
 async function stopRecording() {
   await chrome.storage.local.set({ orma_recording: false });
   await chrome.alarms.clear(ALARM_NAME);
+  stopPeriodicTimer();
   recentCaptures.clear();
   console.log('[Orma SW] Recording stopped');
 }
@@ -263,13 +311,19 @@ async function doCapture(tab, token) {
 
   // ── POST to backend ────────────────────────────────────────────────────────
   try {
+    const settings = await chrome.storage.local.get(['orma_groq_api_key']);
+    const headers = {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    };
+    if (settings.orma_groq_api_key) {
+      headers['X-Groq-API-Key'] = settings.orma_groq_api_key;
+    }
+
     console.log('[Orma SW] Posting to backend...');
     const res = await fetch(`${API_BASE}/captures`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
+      headers,
       body: JSON.stringify({ url, title, domain, pageText, screenshot }),
     });
 

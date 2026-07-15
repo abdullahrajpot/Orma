@@ -76,6 +76,18 @@
           Turn on to automatically capture every page you visit.
         </div>
 
+        <div class="section-label" style="margin-top:16px;">Settings</div>
+        <div class="record-card" style="margin-top:8px; padding:12px; display:block;">
+          <label class="record-label" for="captureIntervalInput" style="display:block; margin-bottom:6px;">Screenshot interval (seconds)</label>
+          <input id="captureIntervalInput" type="number" min="10" step="5" value="30" style="width:100%; margin-bottom:10px;" />
+
+          <label class="record-label" for="apiKeyInput" style="display:block; margin-bottom:6px;">Groq API key</label>
+          <input id="apiKeyInput" type="password" placeholder="Paste your Groq key" style="width:100%; margin-bottom:10px;" />
+
+          <button id="saveSettingsBtn" class="primary" style="width:100%;">Save settings</button>
+          <div id="settingsStatus" class="record-sub" style="margin-top:8px; min-height:16px;"></div>
+        </div>
+
         <!-- Manual capture button — visible only when recording -->
         <button id="captureNowBtn" class="capture-now-btn" style="display:none;">
           📸 Capture now
