@@ -5,95 +5,130 @@ const { db, uuidv4 } = require('../db/store');
 
 const router = express.Router();
 const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
-const MODEL = 'llama3-8b-8192';
 
-// Read key dynamically so adding it to .env takes effect without restart
+// Text model — fast, for summaries and chat
+const TEXT_MODEL = 'llama-3.3-70b-versatile';
+// Vision model — reads screenshots
+const VISION_MODEL = 'meta-llama/llama-4-scout-17b-16e-instruct';
+
+// ── Key helper ────────────────────────────────────────────────────────────────
 function getGroqKey() {
-  return process.env.GROQ_API_KEY && process.env.GROQ_API_KEY !== 'your_groq_api_key_here'
-    ? process.env.GROQ_API_KEY
-    : null;
+  const k = process.env.GROQ_API_KEY;
+  return k && !k.startsWith('your_') ? k : null;
 }
 
-// ── Try Mongoose Capture model, fall back to lowdb ────────────────────────────
-let CaptureModel = null;
-try { CaptureModel = require('../models/Capture'); } catch {}
-
-// ── Groq helper ────────────────────────────────────────────────────────────────
-async function groq(systemPrompt, userMessage, maxTokens = 400) {
+// ── Text-only Groq call ───────────────────────────────────────────────────────
+async function groqText(system, user, maxTokens = 500) {
   const key = getGroqKey();
-  if (!key) return null;
+  if (!key) { console.error('[Groq/text] No API key'); return null; }
   try {
     const res = await axios.post(
       GROQ_URL,
-      { model: MODEL, max_tokens: maxTokens, messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userMessage },
-      ]},
-      { headers: { Authorization: `Bearer ${key}` }, timeout: 15000 }
+      {
+        model: TEXT_MODEL,
+        max_tokens: maxTokens,
+        messages: [
+          { role: 'system', content: system },
+          { role: 'user', content: user },
+        ],
+      },
+      { headers: { Authorization: `Bearer ${key}` }, timeout: 20000 }
     );
     return res.data.choices[0].message.content.trim();
   } catch (err) {
-    console.error('[Groq]', err.response?.data?.error?.message || err.message);
+    const errMsg = err.response?.data?.error?.message || err.message;
+    console.error('[Groq/text] ERROR:', errMsg);
+    console.error('[Groq/text] Status:', err.response?.status);
     return null;
   }
 }
 
-// ── DB helpers ─────────────────────────────────────────────────────────────────
+// ── Vision Groq call — reads a screenshot ────────────────────────────────────
+// Returns a plain-English description of what's visible on screen
+async function groqVision(screenshotBase64, pageTitle, pageUrl) {
+  const key = getGroqKey();
+  if (!key || !screenshotBase64) return null;
+
+  // Must be a valid base64 data URL
+  if (!screenshotBase64.startsWith('data:image')) return null;
+
+  try {
+    const res = await axios.post(
+      GROQ_URL,
+      {
+        model: VISION_MODEL,
+        max_tokens: 400,
+        messages: [
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'text',
+                text: `This is a screenshot of a browser tab.
+Page title: "${pageTitle}"
+URL: ${pageUrl}
+
+Describe exactly what is visible on screen in 3-5 sentences. Be specific:
+- What type of page is this? (dashboard, article, form, video, etc.)
+- What specific content, data, or UI elements are visible? (e.g. list of items, a table with X rows, a form, a video player, code, etc.)
+- Any counts, names, or key values visible (e.g. "5 API keys listed", "a MongoDB cluster named Cluster0", "YouTube video titled X")
+- What was the user likely doing here?
+Only describe what you can actually see. Be factual and concise.`,
+              },
+              {
+                type: 'image_url',
+                image_url: { url: screenshotBase64 },
+              },
+            ],
+          },
+        ],
+      },
+      { headers: { Authorization: `Bearer ${key}` }, timeout: 30000 }
+    );
+    return res.data.choices[0].message.content.trim();
+  } catch (err) {
+    console.error('[Groq/vision]', err.response?.data?.error?.message || err.message);
+    return null;
+  }
+}
+
+// ── DB helpers ────────────────────────────────────────────────────────────────
 function getCaptures(userId) {
   return db.get('captures').filter({ userId: String(userId) }).value();
 }
 
 function saveCapture(data) {
-  const capture = {
-    _id: uuidv4(),
-    id: undefined, // set after
-    ...data,
-    capturedAt: new Date().toISOString(),
-  };
+  const capture = { _id: uuidv4(), ...data, capturedAt: new Date().toISOString() };
   capture.id = capture._id;
   db.get('captures').push(capture).write();
   return capture;
+}
+
+function updateCapture(id, updates) {
+  db.get('captures').find({ _id: id }).assign(updates).write();
 }
 
 function deleteCapture(id, userId) {
   db.get('captures').remove({ _id: id, userId: String(userId) }).write();
 }
 
-// ── POST /api/captures ─────────────────────────────────────────────────────────
+// ── POST /api/captures ────────────────────────────────────────────────────────
 router.post('/', requireAuth, async (req, res) => {
   try {
     const { url, title, domain, pageText, screenshot } = req.body;
     if (!url) return res.status(400).json({ error: 'url is required' });
 
-    if (url.startsWith('chrome') || url.startsWith('about:') || url.startsWith('chrome-extension:'))
-      return res.status(204).end();
+    if (
+      url.startsWith('chrome://') || url.startsWith('chrome-extension://') ||
+      url.startsWith('about:') || url.startsWith('edge://')
+    ) return res.status(204).end();
 
-    // Deduplicate: same URL within last 60 seconds
+    // Deduplicate: same URL within last 60s
     const cutoff = new Date(Date.now() - 60_000).toISOString();
-    const existing = getCaptures(req.userId).find(
-      c => c.url === url && c.capturedAt > cutoff
-    );
-    if (existing) return res.status(204).end();
+    const dup = getCaptures(req.userId).find(c => c.url === url && c.capturedAt > cutoff);
+    if (dup) return res.status(204).end();
 
-    // AI summary + category
-    let summary = '';
-    let category = 'General';
-    if (pageText && getGroqKey()) {
-      const aiReply = await groq(
-        'You are a concise assistant. Given a web page title and text, output valid JSON only: {"summary":"...","category":"..."}. Category must be one of: Article, Video, Social, Shopping, Research, News, Entertainment, Dev/Tech, Other.',
-        `Title: ${title}\nText: ${pageText.slice(0, 1500)}`
-      );
-      if (aiReply) {
-        try {
-          const parsed = JSON.parse(aiReply);
-          summary = parsed.summary || '';
-          category = parsed.category || 'General';
-        } catch {
-          summary = aiReply;
-        }
-      }
-    }
-
+    // Save immediately so the extension gets a fast response
     const capture = saveCapture({
       userId: String(req.userId),
       url,
@@ -101,18 +136,64 @@ router.post('/', requireAuth, async (req, res) => {
       domain: domain || '',
       pageText: (pageText || '').slice(0, 4000),
       screenshot: screenshot || '',
-      summary,
-      category,
+      summary: '',
+      visualDescription: '',
+      category: 'General',
     });
 
-    res.status(201).json({ id: capture._id, summary, category });
+    res.status(201).json({ id: capture._id });
+
+    // ── Background AI analysis (after responding) ─────────────────────────
+    setImmediate(async () => {
+      const key = getGroqKey();
+      if (!key) return;
+
+      let summary = '';
+      let category = 'General';
+      let visualDescription = '';
+
+      // 1. Vision — read the screenshot
+      if (screenshot) {
+        console.log(`[Vision] Analyzing screenshot for: ${title}`);
+        visualDescription = await groqVision(screenshot, title, url) || '';
+        if (visualDescription) console.log(`[Vision] Done: ${visualDescription.slice(0, 80)}…`);
+      }
+
+      // 2. Text summary + category
+      const textForSummary = [
+        title,
+        visualDescription,
+        (pageText || '').slice(0, 1000),
+      ].filter(Boolean).join('\n');
+
+      if (textForSummary) {
+        const aiReply = await groqText(
+          'You are a concise assistant. Given a web page title, visual description, and text, output ONLY valid JSON: {"summary":"one or two sentence summary of what this page is about and what was happening","category":"..."}. Category must be one of: Article, Video, Social, Shopping, Research, News, Entertainment, Dev/Tech, Other. Output JSON only, no explanation.',
+          textForSummary
+        );
+        if (aiReply) {
+          try {
+            const p = JSON.parse(aiReply);
+            summary = p.summary || '';
+            category = p.category || 'General';
+          } catch {
+            // If JSON parse fails, use the raw text as summary
+            summary = aiReply.slice(0, 200);
+          }
+        }
+      }
+
+      updateCapture(capture._id, { summary, category, visualDescription });
+      console.log(`[AI] Capture enriched: "${title}" → ${category}`);
+    });
+
   } catch (err) {
     console.error('[captures POST]', err);
     res.status(500).json({ error: err.message });
   }
 });
 
-// ── GET /api/captures ──────────────────────────────────────────────────────────
+// ── GET /api/captures ─────────────────────────────────────────────────────────
 router.get('/', requireAuth, async (req, res) => {
   try {
     const limit = Math.min(parseInt(req.query.limit) || 50, 200);
@@ -121,42 +202,32 @@ router.get('/', requireAuth, async (req, res) => {
 
     let list = getCaptures(req.userId);
 
-    // Date filter
     if (date) {
-      const dayStart = date; // 'YYYY-MM-DD'
-      const dayEnd = date + 'T23:59:59.999Z';
-      list = list.filter(c => c.capturedAt >= dayStart && c.capturedAt <= dayEnd);
+      list = list.filter(c =>
+        c.capturedAt >= date && c.capturedAt <= date + 'T23:59:59.999Z'
+      );
     }
-
-    // Keyword search
     if (search) {
       const q = search.toLowerCase();
       list = list.filter(c =>
-        (c.title + ' ' + c.summary + ' ' + c.pageText).toLowerCase().includes(q)
+        [c.title, c.summary, c.pageText, c.visualDescription].join(' ').toLowerCase().includes(q)
       );
     }
 
-    // Sort newest first
     list = list.sort((a, b) => b.capturedAt.localeCompare(a.capturedAt));
     const total = list.length;
-    const captures = list.slice(skip, skip + limit).map(c => {
-      // Don't send full pageText in list view
-      const { pageText, ...rest } = c;
-      return rest;
-    });
-
+    const captures = list.slice(skip, skip + limit).map(({ pageText, ...rest }) => rest);
     res.json({ captures, total });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// ── GET /api/captures/stats/daily ─────────────────────────────────────────────
+// ── GET /api/captures/stats/daily ────────────────────────────────────────────
 router.get('/stats/daily', requireAuth, async (req, res) => {
   try {
-    const list = getCaptures(req.userId);
     const map = {};
-    list.forEach(c => {
+    getCaptures(req.userId).forEach(c => {
       const day = c.capturedAt.slice(0, 10);
       map[day] = (map[day] || 0) + 1;
     });
@@ -170,7 +241,34 @@ router.get('/stats/daily', requireAuth, async (req, res) => {
   }
 });
 
-// ── POST /api/captures/chat ────────────────────────────────────────────────────
+// ── POST /api/captures/reanalyze ─────────────────────────────────────────────
+router.post('/reanalyze', requireAuth, async (req, res) => {
+  const key = getGroqKey();
+  if (!key) {
+    return res.status(400).json({
+      error: 'No Groq API key configured. Add GROQ_API_KEY to backend/.env and restart the server.',
+    });
+  }
+
+  const all = getCaptures(req.userId);
+  const needsVision = all.filter(c => c.screenshot && !c.visualDescription);
+  res.json({ queued: needsVision.length });
+
+  // Process in background
+  setImmediate(async () => {
+    for (const c of needsVision.slice(0, 50)) { // max 50 at a time
+      const vd = await groqVision(c.screenshot, c.title, c.url);
+      if (vd) {
+        updateCapture(c._id, { visualDescription: vd });
+        console.log(`[Reanalyze] ${c.title}: ${vd.slice(0, 60)}…`);
+      }
+      await new Promise(r => setTimeout(r, 500)); // rate limit
+    }
+    console.log('[Reanalyze] Done');
+  });
+});
+
+// ── POST /api/captures/chat ───────────────────────────────────────────────────
 router.post('/chat', requireAuth, async (req, res) => {
   try {
     const { message } = req.body;
@@ -180,16 +278,14 @@ router.post('/chat', requireAuth, async (req, res) => {
     const now = new Date();
     let list = getCaptures(req.userId);
 
-    // ── 1. Time-based filtering ──────────────────────────────────────────────
+    // ── Time filter ───────────────────────────────────────────────────────────
     let timeLabel = '';
     if (query.includes('yesterday')) {
       const y = new Date(now); y.setDate(y.getDate() - 1);
-      const yStr = y.toISOString().slice(0, 10);
-      list = list.filter(c => c.capturedAt.startsWith(yStr));
+      list = list.filter(c => c.capturedAt.startsWith(y.toISOString().slice(0, 10)));
       timeLabel = 'yesterday';
     } else if (query.includes('today')) {
-      const todayStr = now.toISOString().slice(0, 10);
-      list = list.filter(c => c.capturedAt.startsWith(todayStr));
+      list = list.filter(c => c.capturedAt.startsWith(now.toISOString().slice(0, 10)));
       timeLabel = 'today';
     } else if (query.match(/(\d+)\s*days?\s*ago/)) {
       const d = parseInt(query.match(/(\d+)\s*days?\s*ago/)[1]);
@@ -202,193 +298,177 @@ router.post('/chat', requireAuth, async (req, res) => {
       timeLabel = 'this week';
     }
 
-    // Sort newest first
     list = list.sort((a, b) => b.capturedAt.localeCompare(a.capturedAt));
 
     if (list.length === 0) {
       return res.json({
         answer: timeLabel
-          ? `I don't have any captures from ${timeLabel}. Make sure recording was on.`
-          : "I don't have any captures yet. Make sure the extension is on and recording.",
+          ? `I don't have any captures from ${timeLabel}. Was recording on during that time?`
+          : "No captures yet. Turn on recording in the extension and browse some pages.",
         sources: [],
       });
     }
 
-    // ── 2. Smart keyword scoring ─────────────────────────────────────────────
-    // Extract meaningful words from the query (remove stop words, keep all lengths)
+    // ── Keyword scoring (title, domain, summary, visual description, page text) ─
     const stopWords = new Set([
       'what','when','where','which','who','how','did','do','does','was','were',
       'have','has','the','a','an','and','or','but','in','on','at','to','for',
       'of','with','about','from','that','this','my','i','me','you','your',
       'tell','show','find','give','list','can','could','would','should',
       'something','anything','everything','some','any','all','just','like',
+      'many','much','more','most','very','really','quite','also','too',
     ]);
     const keywords = query
       .split(/[\s,?.!]+/)
       .map(w => w.replace(/[^a-z0-9]/g, ''))
       .filter(w => w.length >= 2 && !stopWords.has(w));
 
-    console.log('[chat] query keywords:', keywords);
+    console.log('[chat] keywords:', keywords, '| time:', timeLabel || 'all time');
 
-    // Score each capture against keywords
     const scored = list.map(c => {
-      const haystack = [
-        c.title || '',
-        c.summary || '',
-        c.pageText || '',
-        c.domain || '',
-        c.category || '',
-        c.url || '',
-      ].join(' ').toLowerCase();
-
       let score = 0;
-      let exactMatches = 0;
+      const title = (c.title || '').toLowerCase();
+      const domain = (c.domain || '').toLowerCase();
+      const summary = (c.summary || '').toLowerCase();
+      const visual = (c.visualDescription || '').toLowerCase();
+      const text = (c.pageText || '').toLowerCase();
+      const url = (c.url || '').toLowerCase();
+
       keywords.forEach(kw => {
-        if (haystack.includes(kw)) {
-          score += 1;
-          // Boost title/domain matches (more specific)
-          if ((c.title || '').toLowerCase().includes(kw)) score += 3;
-          if ((c.domain || '').toLowerCase().includes(kw)) score += 2;
-          if ((c.summary || '').toLowerCase().includes(kw)) score += 1;
-          exactMatches++;
-        }
+        if (title.includes(kw))   score += 5;
+        if (domain.includes(kw))  score += 4;
+        if (url.includes(kw))     score += 3;
+        if (summary.includes(kw)) score += 3;
+        if (visual.includes(kw))  score += 2;
+        if (text.includes(kw))    score += 1;
       });
-      return { ...c, score, exactMatches };
-    });
+      return { ...c, score };
+    }).sort((a, b) => b.score - a.score);
 
-    scored.sort((a, b) => b.score - a.score);
-
-    // Top relevant sources — only include if they have some match
-    // If nothing matches keywords, fall back to most recent
     const hasMatches = scored.some(c => c.score > 0);
-    const topCaptures = hasMatches
-      ? scored.filter(c => c.score > 0).slice(0, 6)
-      : scored.slice(0, 5);
+    const topCaptures = (hasMatches ? scored.filter(c => c.score > 0) : scored).slice(0, 8);
 
-    const sources = topCaptures.slice(0, 5).map(c => ({
+    const sources = topCaptures.slice(0, 6).map(c => ({
       id: c._id,
       title: c.title,
       url: c.url,
       domain: c.domain,
-      screenshot: c.screenshot,
+      screenshot: c.screenshot || '',
       capturedAt: c.capturedAt,
-      summary: c.summary,
-      category: c.category,
+      summary: c.summary || '',
+      visualDescription: c.visualDescription || '',
+      category: c.category || 'General',
     }));
 
-    // ── 3. AI answer (if Groq key is set) ────────────────────────────────────
-    const activeKey = process.env.GROQ_API_KEY;
-    if (activeKey && activeKey !== 'your_groq_api_key_here') {
-      // Use top scored captures as context for AI
-      const contextCaptures = topCaptures.slice(0, 15);
-      const context = contextCaptures.map((c, i) => {
-        const d = new Date(c.capturedAt).toLocaleString();
-        return [
-          `[${i + 1}] Title: "${c.title}"`,
+    // ── AI answer ─────────────────────────────────────────────────────────────
+    const key = getGroqKey();
+    console.log('[chat] Groq key present:', !!key, '| topCaptures:', topCaptures.length);
+
+    if (key) {
+      // Build the richest possible context — text + visual descriptions
+      const context = topCaptures.slice(0, 10).map((c, i) => {
+        const time = new Date(c.capturedAt).toLocaleString(undefined, {
+          weekday: 'short', month: 'short', day: 'numeric',
+          hour: '2-digit', minute: '2-digit',
+        });
+        const parts = [
+          `=== Source [${i + 1}] ===`,
+          `Title: ${c.title}`,
+          `Website: ${c.domain}`,
           `URL: ${c.url}`,
-          `Time: ${d}`,
+          `Captured: ${time}`,
           `Category: ${c.category || 'General'}`,
-          `Summary: ${c.summary || '(no summary)'}`,
-          `Snippet: ${(c.pageText || '').slice(0, 400)}`,
-        ].join('\n');
-      }).join('\n\n---\n\n');
+        ];
+        if (c.visualDescription) {
+          parts.push(`What was visible on screen: ${c.visualDescription}`);
+        }
+        if (c.summary) {
+          parts.push(`Page summary: ${c.summary}`);
+        }
+        if (c.pageText) {
+          parts.push(`Page text excerpt: ${c.pageText.slice(0, 600)}`);
+        }
+        return parts.join('\n');
+      }).join('\n\n');
 
-      const aiAnswer = await groq(
-        `You are Orma, a personal AI memory assistant. The user has a browsing history with page captures.
-Your job: answer the user's SPECIFIC question using ONLY the provided capture context.
-- Be direct and specific — mention exact page titles, websites, and times
-- If asked about a specific topic (e.g. "bazar project", "api key"), focus ONLY on captures relevant to that
-- If asked "what did I do when creating X project", describe what pages they visited related to X
-- Group related captures together in your answer
-- If no captures match the question, say so clearly
-- Do NOT list unrelated captures
-- Format: conversational prose, not bullet lists`,
-        `User question: "${message}"\n\nRelevant captures (ranked by relevance):\n\n${context}`,
-        700
-      );
+      console.log('[chat] Context length:', context.length, 'chars | Calling Groq...');
 
-      if (aiAnswer) {
-        return res.json({ answer: aiAnswer, sources });
-      }
+      const systemPrompt = `You are Orma, a personal AI memory assistant. The user is asking about their own browsing history. You have been given their captured page data including visual descriptions of screenshots.
+
+STRICT RULES:
+1. Answer the EXACT question asked — do not give a generic overview
+2. If asked "what API keys are created" — list the actual key names/details visible in the captures
+3. If asked "how many" — count and state the exact number
+4. If asked about a specific site/project — only describe captures from that site/project
+5. Use specific details: page titles, times, what was visible on screen, counts, names
+6. Write in plain conversational English — 2-3 paragraphs max
+7. If a visual description says "3 API keys listed named X, Y, Z" — use that exact info
+8. NEVER say "I don't have enough information" if you have relevant captures — use what you have
+9. Be direct: start your answer with the actual answer, not a preamble`;
+
+      const userPrompt = `User's question: "${message}"
+${timeLabel ? `They are asking about: ${timeLabel}` : ''}
+Number of relevant captures: ${topCaptures.length}
+
+Here is the browsing data (sorted by relevance):
+
+${context}
+
+Now answer the question "${message}" using the specific details from the captures above.`;
+
+      const aiAnswer = await groqText(systemPrompt, userPrompt, 700);
+      console.log('[chat] Groq answer:', aiAnswer ? aiAnswer.slice(0, 100) + '...' : 'NULL — falling back');
+
+      if (aiAnswer) return res.json({ answer: aiAnswer, sources });
     }
 
-    // ── 4. Smart fallback (no AI key) ─────────────────────────────────────────
+    // ── No-key fallback ───────────────────────────────────────────────────────
     return res.json({
-      answer: buildSmartAnswer(query, keywords, topCaptures, hasMatches, timeLabel),
+      answer: buildFallback(query, keywords, topCaptures, hasMatches, timeLabel),
       sources,
     });
 
   } catch (err) {
-    console.error('[captures/chat]', err);
+    console.error('[chat]', err);
     res.status(500).json({ error: err.message });
   }
 });
 
-// ── Smart answer builder (no AI key needed) ────────────────────────────────────
-function buildSmartAnswer(query, keywords, captures, hasMatches, timeLabel) {
-  if (captures.length === 0) return "No captures found.";
-
+function buildFallback(query, keywords, captures, hasMatches, timeLabel) {
+  if (!captures.length) return 'No captures found.';
   const when = timeLabel ? ` from ${timeLabel}` : '';
+  const top = captures.slice(0, 3);
+  const isHowMany = /how many|count|number/i.test(query);
 
-  // Detect question intent
-  const isWhatVisited = /what.*(visit|open|go|browse|look)/i.test(query);
-  const isWhatRead = /what.*(read|article|blog|post)/i.test(query);
-  const isWhatWatch = /what.*(watch|video|youtube)/i.test(query);
-  const isSpecificTopic = keywords.length > 0 && hasMatches;
-  const isWhenQuestion = /when.*(visit|open|go|look|check)/i.test(query);
-
-  if (!hasMatches) {
-    // Generic time-based summary
-    const lines = captures.slice(0, 6).map(c => {
-      const t = new Date(c.capturedAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
-      const day = new Date(c.capturedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-      return `• "${c.title}" on ${c.domain} — ${day} at ${t}`;
-    });
-    return `Here's what you browsed${when}:\n\n${lines.join('\n')}`;
+  if (isHowMany && hasMatches) {
+    const title = top[0]?.title || 'a capture';
+    return `I found ${captures.length} capture${captures.length !== 1 ? 's' : ''}${when} that match your question. The most relevant one is "${title}"${when}. See the attached sources for details.`;
   }
 
-  // Group by domain/topic
-  const groups = {};
-  captures.forEach(c => {
-    const key = c.domain || 'other';
-    if (!groups[key]) groups[key] = [];
-    groups[key].push(c);
+  const summaryLines = top.map(c => {
+    const t = new Date(c.capturedAt).toLocaleString(undefined, {
+      month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+    });
+    const detail = c.summary || c.visualDescription || c.pageText || '';
+    const details = detail ? ` ${detail.slice(0, 120).trim()}` : '';
+    return `• ${c.title || 'Untitled'} (${c.domain}) at ${t}.${details}`;
   });
 
-  if (isWhenQuestion && captures.length > 0) {
-    const c = captures[0];
-    const t = new Date(c.capturedAt).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-    return `You visited "${c.title}" on ${c.domain} at ${t}.${captures.length > 1 ? ` There were ${captures.length - 1} other related captures.` : ''}`;
-  }
-
-  // Topic-specific answer
-  const topicSummary = captures.slice(0, 5).map(c => {
-    const t = new Date(c.capturedAt).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-    const summary = c.summary ? ` — ${c.summary.slice(0, 100)}` : '';
-    return `• "${c.title}" (${c.domain}) at ${t}${summary}`;
-  }).join('\n');
-
-  const topicName = keywords.slice(0, 3).join(' ');
-  return `Based on your captures${when} related to "${topicName}":\n\n${topicSummary}${
-    captures.length > 5 ? `\n\n…and ${captures.length - 5} more related captures.` : ''
-  }\n\n💡 Add a Groq API key in backend/.env for detailed AI analysis.`;
+  return `I found ${captures.length} capture${captures.length !== 1 ? 's' : ''}${when}. The top matches are:\n\n${summaryLines.join('\n')}\n\nOpen the screenshot sources to see the exact pages and details.`;
 }
 
-
-// ── GET /api/captures/:id ──────────────────────────────────────────────────────
+// ── GET /api/captures/:id ─────────────────────────────────────────────────────
 router.get('/:id', requireAuth, async (req, res) => {
   try {
-    const capture = db.get('captures')
-      .find({ _id: req.params.id, userId: String(req.userId) })
-      .value();
-    if (!capture) return res.status(404).json({ error: 'Not found.' });
-    res.json(capture);
+    const c = db.get('captures').find({ _id: req.params.id, userId: String(req.userId) }).value();
+    if (!c) return res.status(404).json({ error: 'Not found.' });
+    res.json(c);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// ── DELETE /api/captures/:id ───────────────────────────────────────────────────
+// ── DELETE /api/captures/:id ──────────────────────────────────────────────────
 router.delete('/:id', requireAuth, async (req, res) => {
   try {
     deleteCapture(req.params.id, req.userId);

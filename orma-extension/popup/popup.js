@@ -169,12 +169,13 @@ document.getElementById('loginBtn').addEventListener('click', async () => {
   const { status, data } = await apiPost('/auth/login', { email, password });
   btn.textContent = 'Log in'; btn.disabled = false;
 
-  if (status === 200) {
-    await chrome.storage.local.set({ orma_token: data.token, orma_user: data.user });
+  if (status === 200 && data?.token) {
+    const user = data.user || { email };
+    await chrome.storage.local.set({ orma_token: data.token, orma_user: user });
     chrome.runtime.sendMessage({ type: 'SET_TOKEN', token: data.token });
-    showMainScreen(data.token, data.user);
+    showMainScreen(data.token, user);
   } else {
-    showAuthError(data.error || 'Login failed. Check your credentials.');
+    showAuthError(data?.error || 'Login failed. Check your credentials.');
   }
 });
 
@@ -190,12 +191,13 @@ document.getElementById('signupBtn').addEventListener('click', async () => {
   const { status, data } = await apiPost('/auth/signup', { name, email, password });
   btn.textContent = 'Create account'; btn.disabled = false;
 
-  if (status === 201) {
-    await chrome.storage.local.set({ orma_token: data.token, orma_user: data.user });
+  if (status === 201 && data?.token) {
+    const user = data.user || { name, email };
+    await chrome.storage.local.set({ orma_token: data.token, orma_user: user });
     chrome.runtime.sendMessage({ type: 'SET_TOKEN', token: data.token });
-    showMainScreen(data.token, data.user);
+    showMainScreen(data.token, user);
   } else {
-    showAuthError(data.error || 'Signup failed. Try again.');
+    showAuthError(data?.error || 'Signup failed. Try again.');
   }
 });
 

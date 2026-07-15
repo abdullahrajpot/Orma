@@ -7,27 +7,30 @@ function getPageData() {
     };
 }
 
-// Extension ke popup se message sunne ke liye
-chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-    if (request.action === "SAVE_PAGE") {
-        const pageData = getPageData();
+if (!window.__ormaLegacyContentListenerRegistered) {
+    window.__ormaLegacyContentListenerRegistered = true;
 
-        // Backend ko data bhejna
-        fetch('http://localhost:5000/api/memories/save', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(pageData)
-        })
-        .then(response => response.json())
-        .then(data => {
-            console.log("Success:", data);
-            sendResponse({ status: "success", message: "Saved!" });
-        })
-        .catch(error => {
-            console.error("Error:", error);
-            sendResponse({ status: "error", message: error.message });
-        });
+    // Extension ke popup se message sunne ke liye
+    chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+        if (request.action === "SAVE_PAGE") {
+            const pageData = getPageData();
 
-        return true; // async response ke liye zaroori hai
-    }
-});
+            fetch('http://localhost:5000/api/memories/save', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(pageData)
+            })
+            .then(response => response.json())
+            .then(data => {
+                console.log("Success:", data);
+                sendResponse({ status: "success", message: "Saved!" });
+            })
+            .catch(error => {
+                console.error("Error:", error);
+                sendResponse({ status: "error", message: error.message });
+            });
+
+            return true; // async response ke liye zaroori hai
+        }
+    });
+}

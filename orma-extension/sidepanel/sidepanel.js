@@ -21,16 +21,22 @@ function addBubble(role, html, sources = []) {
   if (sources.length > 0) {
     const srcContainer = document.createElement('div');
     srcContainer.className = 'sources';
-    sources.forEach((s) => {
+    sources.forEach((s, i) => {
       const card = document.createElement('div');
       card.className = 'source-card';
+      const time = s.capturedAt ? formatTime(s.capturedAt) : '';
       card.innerHTML = `
-        ${s.screenshot ? `<img src="${s.screenshot}" alt="${s.title}" loading="lazy">` : ''}
-        <div class="source-card-body">
-          <div class="source-title">${s.title || 'Untitled'}</div>
-          <div class="source-meta">${s.domain || ''} ${s.category ? '· ' + s.category : ''}</div>
-          ${s.capturedAt ? `<div class="source-time">${formatTime(s.capturedAt)}</div>` : ''}
-          ${s.summary ? `<div style="font-size:11px;color:var(--ink-soft);margin-top:4px;line-height:1.4">${s.summary.slice(0, 120)}…</div>` : ''}
+        <div class="source-card-inner">
+          ${s.screenshot
+            ? `<img src="${s.screenshot}" alt="${s.title}" loading="lazy" class="source-img">`
+            : `<div class="source-img-placeholder">${s.domain || 'No preview'}</div>`
+          }
+          <div class="source-card-body">
+            <span class="source-num">[${i + 1}] ${s.category || 'General'}</span>
+            <div class="source-title">${s.title || 'Untitled'}</div>
+            <div class="source-meta">${s.domain || ''}${time ? ' · ' + time : ''}</div>
+            ${s.summary ? `<div class="source-summary">${s.summary.slice(0, 150)}</div>` : ''}
+          </div>
         </div>
       `;
       card.addEventListener('click', () => {

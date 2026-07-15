@@ -59,6 +59,14 @@ export default function CaptureDetailPage() {
         </div>
       )}
 
+      {/* Visual description from AI vision */}
+      {capture.visualDescription && (
+        <div className="mb-6 rounded-xl border border-border bg-surface p-4">
+          <p className="mb-1 text-[11px] font-bold uppercase tracking-wider text-ink-soft">👁 What was visible on screen</p>
+          <p className="text-[13.5px] leading-relaxed text-ink">{capture.visualDescription}</p>
+        </div>
+      )}
+
       {/* Summary */}
       {capture.summary && (
         <div className="mb-6 rounded-xl border border-accent/20 bg-accent-soft/40 p-4">
