@@ -72,12 +72,14 @@ export default function LandingPage() {
             ask for it back in plain language — weeks later, without the tab.
           </p>
           <div className="mt-8 flex flex-col items-center gap-3 sm:flex-row md:justify-start">
-            <Link
-              to="/signup"
+            <a
+              href="https://chrome.google.com/webstore/detail/orma-automatic-screen-memory/"
+              target="_blank"
+              rel="noreferrer"
               className="w-full rounded-lg bg-accent px-6 py-3 text-center text-[14px] font-semibold text-white hover:bg-accent-dark sm:w-auto"
             >
               Add to Chrome — it&apos;s free
-            </Link>
+            </a>
             <a
               href="#how-it-works"
               className="w-full rounded-lg border border-border px-6 py-3 text-center text-[14px] font-semibold text-ink hover:bg-surface-alt sm:w-auto"
@@ -153,12 +155,14 @@ export default function LandingPage() {
         <p className="mx-auto mt-3 max-w-md text-[15px] text-ink-soft">
           Free while in early access. Takes under a minute to set up.
         </p>
-        <Link
-          to="/signup"
+        <a
+          href="https://chrome.google.com/webstore/detail/orma-automatic-screen-memory/"
+          target="_blank"
+          rel="noreferrer"
           className="mt-7 inline-block rounded-lg bg-accent px-7 py-3 text-[14px] font-semibold text-white hover:bg-accent-dark"
         >
           Add to Chrome — it&apos;s free
-        </Link>
+        </a>
       </section>
 
       <footer className="border-t border-border py-8">

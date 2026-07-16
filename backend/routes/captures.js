@@ -1,6 +1,8 @@
 const express = require('express');
 const axios = require('axios');
+const mongoose = require('mongoose');
 const requireAuth = require('../middleware/auth');
+const Capture = require('../models/Capture');
 const { db, uuidv4 } = require('../db/store');
 
 const router = express.Router();
@@ -93,22 +95,57 @@ Only describe what you can actually see. Be factual and concise.`,
 }
 
 // ── DB helpers ────────────────────────────────────────────────────────────────
-function getCaptures(userId) {
+function isMongoAvailable() {
+  return mongoose.connection.readyState === 1;
+}
+
+async function getCaptures(userId) {
+  if (isMongoAvailable()) {
+    const docs = await Capture.find({ userId: String(userId) }).sort({ capturedAt: -1 }).lean();
+    return docs.map((doc) => ({
+      ...doc,
+      _id: String(doc._id),
+      userId: String(doc.userId),
+      capturedAt: doc.capturedAt ? new Date(doc.capturedAt).toISOString() : '',
+    }));
+  }
   return db.get('captures').filter({ userId: String(userId) }).value();
 }
 
-function saveCapture(data) {
+async function saveCapture(data) {
+  if (isMongoAvailable()) {
+    const doc = await Capture.create({
+      ...data,
+      userId: String(data.userId),
+      capturedAt: data.capturedAt || new Date(),
+    });
+    return {
+      ...doc.toObject(),
+      _id: String(doc._id),
+      userId: String(doc.userId),
+      capturedAt: doc.capturedAt ? new Date(doc.capturedAt).toISOString() : '',
+    };
+  }
+
   const capture = { _id: uuidv4(), ...data, capturedAt: new Date().toISOString() };
   capture.id = capture._id;
   db.get('captures').push(capture).write();
   return capture;
 }
 
-function updateCapture(id, updates) {
+async function updateCapture(id, updates) {
+  if (isMongoAvailable()) {
+    await Capture.findByIdAndUpdate(id, updates, { new: true });
+    return;
+  }
   db.get('captures').find({ _id: id }).assign(updates).write();
 }
 
-function deleteCapture(id, userId) {
+async function deleteCapture(id, userId) {
+  if (isMongoAvailable()) {
+    await Capture.findOneAndDelete({ _id: id, userId });
+    return;
+  }
   db.get('captures').remove({ _id: id, userId: String(userId) }).write();
 }
 
@@ -125,12 +162,13 @@ router.post('/', requireAuth, async (req, res) => {
     ) return res.status(204).end();
 
     // Deduplicate: same URL within last 60s
-    const cutoff = new Date(Date.now() - 60_000).toISOString();
-    const dup = getCaptures(req.userId).find(c => c.url === url && c.capturedAt > cutoff);
+    const cutoff = new Date(Date.now() - 60_000);
+    const existing = await getCaptures(req.userId);
+    const dup = existing.find(c => c.url === url && new Date(c.capturedAt) > cutoff);
     if (dup) return res.status(204).end();
 
     // Save immediately so the extension gets a fast response
-    const capture = saveCapture({
+    const capture = await saveCapture({
       userId: String(req.userId),
       url,
       title: title || 'Untitled',
@@ -186,7 +224,7 @@ router.post('/', requireAuth, async (req, res) => {
         }
       }
 
-      updateCapture(capture._id, { summary, category, visualDescription });
+      await updateCapture(capture._id, { summary, category, visualDescription });
       console.log(`[AI] Capture enriched: "${title}" → ${category}`);
     });
 
@@ -230,7 +268,7 @@ router.get('/', requireAuth, async (req, res) => {
 router.get('/stats/daily', requireAuth, async (req, res) => {
   try {
     const map = {};
-    getCaptures(req.userId).forEach(c => {
+    (await getCaptures(req.userId)).forEach(c => {
       const day = c.capturedAt.slice(0, 10);
       map[day] = (map[day] || 0) + 1;
     });
@@ -253,7 +291,7 @@ router.post('/reanalyze', requireAuth, async (req, res) => {
     });
   }
 
-  const all = getCaptures(req.userId);
+  const all = await getCaptures(req.userId);
   const needsVision = all.filter(c => c.screenshot && !c.visualDescription);
   res.json({ queued: needsVision.length });
 
@@ -279,7 +317,7 @@ router.post('/chat', requireAuth, async (req, res) => {
 
     const query = message.toLowerCase().trim();
     const now = new Date();
-    let list = getCaptures(req.userId);
+    let list = await getCaptures(req.userId);
 
     // ── Time filter ───────────────────────────────────────────────────────────
     let timeLabel = '';
@@ -463,9 +501,10 @@ function buildFallback(query, keywords, captures, hasMatches, timeLabel) {
 // ── GET /api/captures/:id ─────────────────────────────────────────────────────
 router.get('/:id', requireAuth, async (req, res) => {
   try {
-    const c = db.get('captures').find({ _id: req.params.id, userId: String(req.userId) }).value();
-    if (!c) return res.status(404).json({ error: 'Not found.' });
-    res.json(c);
+    const list = await getCaptures(req.userId);
+    const match = list.find(item => String(item._id) === req.params.id);
+    if (!match) return res.status(404).json({ error: 'Not found.' });
+    res.json(match);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -474,7 +513,7 @@ router.get('/:id', requireAuth, async (req, res) => {
 // ── DELETE /api/captures/:id ──────────────────────────────────────────────────
 router.delete('/:id', requireAuth, async (req, res) => {
   try {
-    deleteCapture(req.params.id, req.userId);
+    await deleteCapture(req.params.id, req.userId);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });

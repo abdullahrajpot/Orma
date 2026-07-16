@@ -278,7 +278,9 @@ document.getElementById('openPanel').addEventListener('click', async () => {
 });
 
 document.getElementById('openDashboard').addEventListener('click', () => {
-  chrome.tabs.create({ url: 'http://localhost:5173' });
+  chrome.tabs.create({ url: 'http://localhost:5173' }).catch(() => {
+    window.alert('The dashboard is not running locally yet. Start it with npm run dev in the orma-dashboard folder.');
+  });
 });
 
 document.getElementById('logoutBtn').addEventListener('click', async () => {

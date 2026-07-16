@@ -1,6 +1,7 @@
 const express = require('express');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
+const mongoose = require('mongoose');
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'orma_dev_secret_change_in_prod';
@@ -15,7 +16,6 @@ function signToken(userId) {
 // When Mongo is available, still fall back to lowdb if a user exists there.
 
 function getStore() {
-  const mongoose = require('mongoose');
   return mongoose.connection.readyState === 1 ? 'mongo' : 'lowdb';
 }
 
@@ -26,7 +26,7 @@ function getMongoUser() {
   return UserModel;
 }
 
-// Lowdb helpers
+// Lowdb helpers (kept only as a last-resort fallback)
 const { db, uuidv4 } = require('../db/store');
 
 function findLowdbUserByEmail(email) {
@@ -65,14 +65,19 @@ async function findUserById(id) {
 
 async function createUser(name, email, password) {
   const normalized = email.toLowerCase();
+
+  if (getStore() === 'mongo') {
+    try {
+      return await getMongoUser().create({ name, email: normalized, password });
+    } catch (err) {
+      if (err.code === 11000) throw new Error('Email already in use.');
+      throw err;
+    }
+  }
+
   const existingLowdb = findLowdbUserByEmail(normalized);
   if (existingLowdb) {
     throw new Error('Email already in use.');
-  }
-
-  if (getStore() === 'mongo') {
-    // Mongoose pre-save hook hashes the password
-    return await getMongoUser().create({ name, email: normalized, password });
   }
 
   const hash = await bcrypt.hash(password, 10);

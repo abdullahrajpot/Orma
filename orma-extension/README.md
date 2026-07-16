@@ -4,11 +4,22 @@ Manifest V3 extension: popup + side panel, both using the same
 locked Slate Ledger palette as the React dashboard. No build step —
 plain HTML/CSS/JS, so it loads directly in Chrome.
 
-## Load it in Chrome
-1. Open `chrome://extensions`
-2. Enable **Developer mode** (top right)
-3. Click **Load unpacked** → select this `orma-extension` folder
+## Load it in Chrome or Edge
+1. Open `chrome://extensions` or `edge://extensions`
+2. Enable **Developer mode**
+3. Click **Load unpacked** and select this `orma-extension` folder
 4. Pin the Orma icon to the toolbar
+
+## Start the backend first
+Before using the extension, start the backend from the project root:
+
+```bash
+cd backend
+npm install
+npm start
+```
+
+The extension will call the backend at `http://localhost:5000`.
 
 ## What actually works right now
 - **Popup** (`popup/`) — reads the active tab's title/URL via `chrome.tabs`,

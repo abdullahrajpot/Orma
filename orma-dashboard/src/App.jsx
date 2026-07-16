@@ -11,6 +11,7 @@ import TimelinePage from './pages/TimelinePage';
 import CaptureDetailPage from './pages/CaptureDetailPage';
 import ProfilePage from './pages/ProfilePage';
 import SettingsPage from './pages/SettingsPage';
+import InstallPage from './pages/InstallPage';
 
 function App() {
   return (
@@ -21,6 +22,7 @@ function App() {
         <Route path="/" element={<LandingPage />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/signup" element={<SignupPage />} />
+        <Route path="/install" element={<InstallPage />} />
 
         {/* Protected app shell */}
         <Route

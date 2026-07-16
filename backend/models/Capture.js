@@ -2,7 +2,7 @@ const mongoose = require('mongoose');
 
 // A single auto-capture event: screenshot + page metadata
 const captureSchema = new mongoose.Schema({
-  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+  userId: { type: String, required: true, index: true },
   url: { type: String, required: true },
   title: { type: String, default: '' },
   domain: { type: String, default: '' },
@@ -12,6 +12,8 @@ const captureSchema = new mongoose.Schema({
   screenshot: { type: String, default: '' },
   // AI-generated summary of this capture
   summary: { type: String, default: '' },
+  // visual description generated from the screenshot
+  visualDescription: { type: String, default: '' },
   // rough category auto-assigned by AI
   category: { type: String, default: 'Uncategorized' },
   capturedAt: { type: Date, default: Date.now, index: true },
