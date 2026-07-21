@@ -18,6 +18,14 @@ export default function InstallPage() {
             Install from Chrome Web Store
           </a>
           <a
+            href="https://github.com/"
+            target="_blank"
+            rel="noreferrer"
+            className="rounded-lg border border-border px-6 py-3 text-center font-semibold text-ink"
+          >
+            Download unpacked ZIP
+          </a>
+          <a
             href="chrome://extensions"
             className="rounded-lg border border-border px-6 py-3 text-center font-semibold text-ink"
           >

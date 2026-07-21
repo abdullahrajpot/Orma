@@ -1,4 +1,5 @@
-const API = 'http://localhost:5000/api';
+const DEFAULT_API = 'http://localhost:5000/api';
+let API = DEFAULT_API;
 let statusInterval = null;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -30,8 +31,11 @@ async function apiPost(path, body) {
 async function readState() {
   return new Promise(resolve => {
     chrome.storage.local.get(
-      ['orma_recording', 'orma_token', 'orma_capture_count', 'orma_user', 'orma_capture_interval', 'orma_groq_api_key'],
-      resolve
+      ['orma_recording', 'orma_token', 'orma_capture_count', 'orma_user', 'orma_capture_interval', 'orma_groq_api_key', 'orma_api_base'],
+      (data) => {
+        API = data.orma_api_base || DEFAULT_API;
+        resolve(data);
+      }
     );
   });
 }
@@ -148,30 +152,36 @@ async function syncUI() {
 function loadSettingsIntoForm() {
   const intervalInput = document.getElementById('captureIntervalInput');
   const apiKeyInput = document.getElementById('apiKeyInput');
-  if (!intervalInput || !apiKeyInput) return;
+  const apiBaseInput = document.getElementById('apiBaseInput');
+  if (!intervalInput || !apiKeyInput || !apiBaseInput) return;
 
-  chrome.storage.local.get(['orma_capture_interval', 'orma_groq_api_key'], (data) => {
+  chrome.storage.local.get(['orma_capture_interval', 'orma_groq_api_key', 'orma_api_base'], (data) => {
     intervalInput.value = data.orma_capture_interval || 30;
     apiKeyInput.value = data.orma_groq_api_key || '';
+    apiBaseInput.value = data.orma_api_base || DEFAULT_API;
   });
 }
 
 async function saveSettings() {
   const intervalInput = document.getElementById('captureIntervalInput');
   const apiKeyInput = document.getElementById('apiKeyInput');
+  const apiBaseInput = document.getElementById('apiBaseInput');
   const statusEl = document.getElementById('settingsStatus');
 
-  if (!intervalInput || !apiKeyInput || !statusEl) return;
+  if (!intervalInput || !apiKeyInput || !apiBaseInput || !statusEl) return;
 
   const interval = Math.max(10, parseInt(intervalInput.value, 10) || 30);
   const apiKey = apiKeyInput.value.trim();
+  const apiBase = (apiBaseInput.value || DEFAULT_API).trim();
 
+  API = apiBase;
   await chrome.storage.local.set({
     orma_capture_interval: interval,
     orma_groq_api_key: apiKey,
+    orma_api_base: apiBase,
   });
 
-  chrome.runtime.sendMessage({ type: 'UPDATE_SETTINGS', interval, apiKey }, () => {
+  chrome.runtime.sendMessage({ type: 'UPDATE_SETTINGS', interval, apiKey, apiBase }, () => {
     statusEl.textContent = 'Settings saved.';
   });
 }

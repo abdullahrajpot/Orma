@@ -241,7 +241,10 @@ router.get('/', requireAuth, async (req, res) => {
     const skip = parseInt(req.query.skip) || 0;
     const { date, search } = req.query;
 
-    let list = getCaptures(req.userId);
+    console.log(`[captures GET] userId=${req.userId} limit=${limit} skip=${skip}`);
+
+    let list = await getCaptures(req.userId);   // ← was missing await
+    console.log(`[captures GET] found ${list.length} captures`);
 
     if (date) {
       list = list.filter(c =>
@@ -255,11 +258,12 @@ router.get('/', requireAuth, async (req, res) => {
       );
     }
 
-    list = list.sort((a, b) => b.capturedAt.localeCompare(a.capturedAt));
+    list = list.sort((a, b) => (b.capturedAt || '').localeCompare(a.capturedAt || ''));
     const total = list.length;
     const captures = list.slice(skip, skip + limit).map(({ pageText, ...rest }) => rest);
     res.json({ captures, total });
   } catch (err) {
+    console.error('[captures GET]', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -268,9 +272,10 @@ router.get('/', requireAuth, async (req, res) => {
 router.get('/stats/daily', requireAuth, async (req, res) => {
   try {
     const map = {};
-    (await getCaptures(req.userId)).forEach(c => {
-      const day = c.capturedAt.slice(0, 10);
-      map[day] = (map[day] || 0) + 1;
+    const list = await getCaptures(req.userId);   // ← was missing await
+    list.forEach(c => {
+      const day = (c.capturedAt || '').slice(0, 10);
+      if (day) map[day] = (map[day] || 0) + 1;
     });
     const stats = Object.entries(map)
       .map(([_id, count]) => ({ _id, count }))

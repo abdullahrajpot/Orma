@@ -9,7 +9,8 @@
 // This avoids the MV3 restriction where captureVisibleTab fails from
 // alarm callbacks when there's no recent user gesture.
 
-const API_BASE = 'http://localhost:5000/api';
+const DEFAULT_API_BASE = 'http://localhost:5000/api';
+let API_BASE = DEFAULT_API_BASE;
 const ALARM_NAME = 'orma_heartbeat';
 const DEFAULT_HEARTBEAT_SECONDS = 30;
 let heartbeatSeconds = DEFAULT_HEARTBEAT_SECONDS;
@@ -24,8 +25,9 @@ async function onStartup() {
   console.log('[Orma SW] startup');
   try { chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: false }); } catch {}
 
-  const data = await chrome.storage.local.get(['orma_recording', 'orma_token', 'orma_capture_interval', 'orma_groq_api_key']);
+  const data = await chrome.storage.local.get(['orma_recording', 'orma_token', 'orma_capture_interval', 'orma_groq_api_key', 'orma_api_base']);
   heartbeatSeconds = Number(data.orma_capture_interval) || DEFAULT_HEARTBEAT_SECONDS;
+  API_BASE = data.orma_api_base || DEFAULT_API_BASE;
   if (data.orma_recording && data.orma_token) {
     ensureHeartbeat();
     startPeriodicTimer();
@@ -191,6 +193,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     chrome.storage.local.set({
       orma_capture_interval: heartbeatSeconds,
       orma_groq_api_key: msg.apiKey || '',
+      orma_api_base: msg.apiBase || DEFAULT_API_BASE,
     }, async () => {
       await chrome.alarms.clear(ALARM_NAME);
       ensureHeartbeat();
@@ -311,7 +314,8 @@ async function doCapture(tab, token) {
 
   // ── POST to backend ────────────────────────────────────────────────────────
   try {
-    const settings = await chrome.storage.local.get(['orma_groq_api_key']);
+    const settings = await chrome.storage.local.get(['orma_groq_api_key', 'orma_api_base']);
+    API_BASE = settings.orma_api_base || DEFAULT_API_BASE;
     const headers = {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${token}`,
@@ -320,8 +324,9 @@ async function doCapture(tab, token) {
       headers['X-Groq-API-Key'] = settings.orma_groq_api_key;
     }
 
-    console.log('[Orma SW] Posting to backend...');
-    const res = await fetch(`${API_BASE}/captures`, {
+    const endpoint = `${API_BASE}/captures`;
+    console.log('[Orma SW] Posting to backend:', endpoint);
+    const res = await fetch(endpoint, {
       method: 'POST',
       headers,
       body: JSON.stringify({ url, title, domain, pageText, screenshot }),
@@ -341,6 +346,9 @@ async function doCapture(tab, token) {
     } else {
       const body = await res.text().catch(() => '');
       console.warn('[Orma SW] Backend error:', res.status, body.slice(0, 200));
+      if (res.status === 401) {
+        console.warn('[Orma SW] Token was rejected by the backend. Check auth or backend secret configuration.');
+      }
     }
   } catch (e) {
     console.error('[Orma SW] Fetch error:', e.message);

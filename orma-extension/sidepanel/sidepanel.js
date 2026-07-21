@@ -1,4 +1,5 @@
-const API = 'http://localhost:5000/api';
+const DEFAULT_API = 'http://localhost:5000/api';
+let API = DEFAULT_API;
 const messagesEl = document.getElementById('messages');
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -61,6 +62,9 @@ async function getToken() {
 
 // ── Status bar ───────────────────────────────────────────────────────────────
 async function refreshStatus() {
+  chrome.storage.local.get(['orma_api_base'], (data) => {
+    API = data.orma_api_base || DEFAULT_API;
+  });
   try {
     chrome.runtime.sendMessage({ type: 'GET_STATUS' }, (status) => {
       const dot = document.getElementById('rec-dot');
@@ -123,11 +127,15 @@ document.getElementById('form').addEventListener('submit', async (e) => {
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify({ message: text }),
     });
-    const data = await res.json();
+    const data = await res.json().catch(() => ({}));
     thinking.remove();
+    if (!res.ok) {
+      addBubble('assistant', `The Orma backend returned an error (${res.status}). Check that the API endpoint is reachable and that your token is valid.`);
+      return;
+    }
     addBubble('assistant', data.answer || 'No answer found.', data.sources || []);
   } catch (err) {
     thinking.remove();
-    addBubble('assistant', 'Could not reach the Orma backend. Make sure it\'s running on localhost:5000.');
+    addBubble('assistant', `Could not reach the Orma backend at ${API}. Make sure the backend is running and the API base URL is correct.`);
   }
 });
